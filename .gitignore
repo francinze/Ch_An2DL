@@ -1,1 +1,4 @@
 *.csv
+models/
+configs/
+.venv/
