@@ -244,7 +244,7 @@ def fit(model, train_loader, val_loader, epochs, criterion, optimizer, scaler, d
             if is_improvement:
                 best_metric = current_metric
                 best_epoch = epoch
-                torch.save(model.state_dict(), current_dir + "models/"+experiment_name+'_model.pt')
+                torch.save(model.state_dict(), "models/"+experiment_name+'_model.pt')
                 patience_counter = 0
             else:
                 patience_counter += 1
@@ -259,7 +259,7 @@ def fit(model, train_loader, val_loader, epochs, criterion, optimizer, scaler, d
 
     # Save final model if no early stopping
     if patience == 0:
-        torch.save(model.state_dict(), current_dir + "models/"+experiment_name+'_model.pt')
+        torch.save(model.state_dict(), "models/"+experiment_name+'_model.pt')
 
     # Close TensorBoard writer
     if writer is not None:
