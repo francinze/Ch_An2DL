@@ -19,14 +19,14 @@ def train_one_epoch(model, train_loader, criterion, optimizer, scaler, device, l
     Returns:
         tuple: (average_loss, f1 score) - Training loss and f1 score for this epoch
     """
-    model.train()  # Set model to training mode
+    model.train()
 
     running_loss = 0.0
     all_predictions = []
     all_targets = []
 
     # Iterate through training batches
-    for batch_idx, (inputs, targets) in enumerate(train_loader):
+    for _, (inputs, targets) in enumerate(train_loader):
         # Move data to device (GPU/CPU)
         inputs, targets = inputs.to(device), targets.to(device)
 

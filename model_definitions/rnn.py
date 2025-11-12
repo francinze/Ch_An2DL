@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+
 class RecurrentClassifier(nn.Module):
     """
     Generic RNN classifier (RNN, LSTM, GRU).
