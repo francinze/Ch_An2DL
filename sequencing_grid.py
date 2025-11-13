@@ -72,7 +72,7 @@ def run_sequencing_grid(df_train, target, n_splits_max, windows, strides, data_c
                 print(top.to_string(index=False))
             except Exception:
                 pass
-        out_csv = f"grid_window_stride_results.csv"
+        out_csv = f"grid_sequencing_results.csv"
         df_res.to_csv(out_csv, index=False)
 
         # ---- Unione e best complessivo ----
