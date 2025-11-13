@@ -19,14 +19,14 @@ def train_one_epoch(model, train_loader, criterion, optimizer, scaler, device, l
     Returns:
         tuple: (average_loss, f1 score) - Training loss and f1 score for this epoch
     """
-    model.train()  # Set model to training mode
+    model.train()
 
     running_loss = 0.0
     all_predictions = []
     all_targets = []
 
     # Iterate through training batches
-    for batch_idx, (inputs, targets) in enumerate(train_loader):
+    for _, (inputs, targets) in enumerate(train_loader):
         # Move data to device (GPU/CPU)
         inputs, targets = inputs.to(device), targets.to(device)
 
@@ -244,7 +244,7 @@ def fit(model, train_loader, val_loader, epochs, criterion, optimizer, scaler, d
             if is_improvement:
                 best_metric = current_metric
                 best_epoch = epoch
-                torch.save(model.state_dict(), current_dir + "models/"+experiment_name+'_model.pt')
+                torch.save(model.state_dict(), "models/"+experiment_name+'_model.pt')
                 patience_counter = 0
             else:
                 patience_counter += 1
@@ -259,7 +259,7 @@ def fit(model, train_loader, val_loader, epochs, criterion, optimizer, scaler, d
 
     # Save final model if no early stopping
     if patience == 0:
-        torch.save(model.state_dict(), current_dir + "models/"+experiment_name+'_model.pt')
+        torch.save(model.state_dict(), "models/"+experiment_name+'_model.pt')
 
     # Close TensorBoard writer
     if writer is not None:

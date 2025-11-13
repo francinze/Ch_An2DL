@@ -32,11 +32,27 @@ def build_windows(
     window: int = 300,
     stride: int = 75,
     padding: str = "zero",      # 'zero' or 'drop_last'
-    feature: str = "flatten",   # 'flatten' (simple baseline)
+    feature: str = "3d",        # '3d' (for RNNs) or 'flatten' (for traditional ML)
     data_cols: list | None = None,
 ):
     """
     Builds sliding windows from df and returns (X, y, groups).
+    
+    Args:
+        df: DataFrame with time series data
+        target: DataFrame with labels
+        window: Window size (number of timesteps)
+        stride: Stride for sliding window
+        padding: 'zero' to pad with zeros, 'drop_last' to drop incomplete windows
+        feature: '3d' returns (samples, timesteps, features) for RNNs,
+                 'flatten' returns (samples, timesteps*features) for traditional ML
+        data_cols: List of columns to use as features
+    
+    Returns:
+        X: numpy array of shape (n_samples, window, n_features) if feature='3d'
+           or (n_samples, window*n_features) if feature='flatten'
+        y: numpy array of labels
+        groups: numpy array of sample indices
     """
     if data_cols is None:
         data_cols = _get_data_cols(df)
@@ -58,11 +74,11 @@ def build_windows(
         L = len(temp)
         start = 0
         while start + window <= L:
-            seg = temp[start:start + window]
+            seg = temp[start:start + window]  # shape: (window, n_features)
             if feature == "flatten":
-                feat = seg.reshape(-1)
+                feat = seg.reshape(-1)  # shape: (window * n_features,)
             else:
-                feat = seg.reshape(-1)  # default fallback
+                feat = seg  # Keep 3D: (window, n_features)
             X.append(feat)
             y.append(lab)
             groups.append(sid)
