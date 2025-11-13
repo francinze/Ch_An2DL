@@ -3,4 +3,4 @@ models/
 configs/
 .venv/
 data/
-.pyc
+*.pyc

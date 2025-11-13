@@ -23,15 +23,18 @@ def _effective_splits(df, n_splits_max):
     n_groups = int(df["sample_index"].nunique())
     return max(2, min(n_splits_max, n_groups))
 
-def run_grid(df, target, padding, data_cols, n_splits_max, windows, strides):
+def run_grid(df, target, padding, data_cols, n_splits_max, windows, strides, df_res):
     """Valuta tutte le combinazioni (window, stride) ∈ WINDOWS×STRIDES con il padding richiesto.
     Ritorna un DataFrame con mean_macroF1/std per ciascuna coppia."""
     if "eval_strategy" not in globals():
         raise RuntimeError("Serve eval_strategy()/build_windows(). Esegui prima le celle dell'harness.")
     rows = []
     n_splits = _effective_splits(df, n_splits_max)
+    print(f"Using n_splits={n_splits} for GroupKFold (max {n_splits_max})")
     for w in windows:
+        print(f"\nWindow={w}")
         for s in strides:
+            print(f"    Stride={s}...", end="", flush=True)
             params = {"window": w, "stride": s, "padding": padding, "feature": "flatten"}
             if data_cols is not None:
                 params["data_cols"] = data_cols
@@ -42,7 +45,8 @@ def run_grid(df, target, padding, data_cols, n_splits_max, windows, strides):
             except Exception as e:
                 rows.append({"window": w, "stride": s, "padding": padding,
                              "mean_macroF1": np.nan, "std": np.nan, "error": str(e)})
-    return pd.DataFrame(rows)
+    df_res = pd.concat([df_res, pd.DataFrame(rows)], ignore_index=True)
+    return df_res
 
 def run_sequencing_grid(df_train, target, n_splits_max, windows, strides, data_cols=None, padding_runs=["zero", "edge"]):
     # ---- Pre-flight check ----
@@ -54,13 +58,11 @@ def run_sequencing_grid(df_train, target, n_splits_max, windows, strides, data_c
         return None
     else:
         # ---- Esecuzione dei due conti separati (padding diverso) ----
-        all_results = []
+        df_res = pd.DataFrame()
         for pad in padding_runs:
-            print(f"\n>>> Running 2D grid with padding = {pad}")
-            df_res = run_grid(df_train, target, padding=pad, data_cols=data_cols, n_splits_max=n_splits_max, windows=windows, strides=strides)
-            all_results.append(df_res)
-            out_csv = f"grid_window_stride_results_padding_{pad}.csv"
-            df_res.to_csv(out_csv, index=False)
+            print(f"\n>>> Running 2D grid with padding = {pad}, windows = {windows}, strides = {strides}...")
+            df_res = run_grid(df_train, target, padding=pad, data_cols=data_cols, n_splits_max=n_splits_max, windows=windows, strides=strides, df_res=df_res)
+
             # Mostra le migliori 15 combinazioni
             try:
                 top = (df_res.dropna(subset=["mean_macroF1"])  # noqa
@@ -70,24 +72,25 @@ def run_sequencing_grid(df_train, target, n_splits_max, windows, strides, data_c
                 print(top.to_string(index=False))
             except Exception:
                 pass
+        out_csv = f"grid_window_stride_results.csv"
+        df_res.to_csv(out_csv, index=False)
 
         # ---- Unione e best complessivo ----
-        results = pd.concat(all_results, ignore_index=True)
         print("\n=== BEST OVERALL (top 20 su entrambi i padding) ===")
-        print(results.dropna(subset=["mean_macroF1"])  # noqa
+        print(df_res.dropna(subset=["mean_macroF1"])  # noqa
                     .sort_values("mean_macroF1", ascending=False)
                     .head(20)
                     .to_string(index=False))
         
-        return results
+        return df_res
 
 if __name__ == "__main__":
     df_train, df_val, target, val_target = run_preprocessing()
 
     # Hyperparameters
-    N_SPLITS_MAX = 5
-    WINDOWS = list(range(100, 601, 100))   # 10..600 step 10 (0 escluso perché invalido)
-    STRIDES = list(range(100, 601, 100))
+    N_SPLITS_MAX = 2
+    WINDOWS = [150]
+    STRIDES = [150]
     PADDING_RUNS = ["zero", "edge"]
 
     run_sequencing_grid(df_train, target, n_splits_max=N_SPLITS_MAX, windows=WINDOWS, strides=STRIDES, padding_runs=PADDING_RUNS)
