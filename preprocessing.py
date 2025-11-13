@@ -92,7 +92,7 @@ def add_prosthetics_feature(df, df_test):
     print("\nFeature created successfully!")
     return df, df_test
 
-def scale_joint_columns(df):
+def scale_joint_columns(df, use_existing_scaler=None):
     print("\nApplying Min-Max normalization to joint columns...")
     print("=" * 60)
     # List of joint columns to normalize
@@ -101,18 +101,25 @@ def scale_joint_columns(df):
     for col in joint_cols:
         df[col] = df[col].astype(np.float32)
 
-    # Initialize the MinMaxScaler
-    minmax_scaler = MinMaxScaler()
-
-    # Apply Min-Max normalization to the joint columns
-    df[joint_cols] = minmax_scaler.fit_transform(df[joint_cols])
-
     # Save the fitted scaler for later use on test data
     import pickle
+    if not use_existing_scaler:
+        # Initialize the MinMaxScaler
+        minmax_scaler = MinMaxScaler()
 
-    # Save the scaler that was fitted on training data
-    with open('minmax_scaler.pkl', 'wb') as f:
-        pickle.dump(minmax_scaler, f)
+        # Apply Min-Max normalization to the joint columns
+        df[joint_cols] = minmax_scaler.fit_transform(df[joint_cols])
+
+
+        # Save the scaler that was fitted on training data
+        with open('minmax_scaler.pkl', 'wb') as f:
+            pickle.dump(minmax_scaler, f)
+    else:
+        # Load the existing scaler
+        minmax_scaler = pickle.load(open('minmax_scaler.pkl', 'rb'))
+
+        # Apply the existing scaler to the joint columns
+        df[joint_cols] = minmax_scaler.transform(df[joint_cols])
 
     print("✅ Scaler saved successfully!")
     print(f"Scaler learned from training data - Min: {minmax_scaler.data_min_[:5]}")
@@ -259,3 +266,13 @@ def run_preprocessing():
     train_df, val_df, train_target, val_target = train_val_split(df, target, val_ratio=0.2)
 
     return train_df, val_df, train_target, val_target
+
+
+def run_test_preprocessing():
+    df_test = pd.read_csv("pirate_pain_test.csv")
+    df_test = df_test.drop(columns=['joint_30'])
+    
+    df_test, _ = add_prosthetics_feature(df_test, df_test)
+    df_test = scale_joint_columns(df_test, use_existing_scaler=True)
+
+    return df_test

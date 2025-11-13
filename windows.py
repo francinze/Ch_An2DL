@@ -28,7 +28,7 @@ if "target" not in globals():
 # --- Window builder ---
 def build_windows(
     df: pd.DataFrame,
-    target: pd.DataFrame,
+    target: pd.DataFrame | None,
     window: int = 300,
     stride: int = 75,
     padding: str = "zero",      # 'zero' or 'drop_last'
@@ -60,13 +60,14 @@ def build_windows(
     for sid in df["sample_index"].unique():
         temp = df[df["sample_index"] == sid][data_cols].values
         # get label for this id
-        lab_arr = target[target["sample_index"] == sid]["label"].values
-        if len(lab_arr) == 0:
-            # if missing label, skip this id
-            continue
-        lab = lab_arr[0]
-        if isinstance(lab, str):
-            lab = LABEL_MAP.get(lab, lab)
+        if target is not None:
+            lab_arr = target[target["sample_index"] == sid]["label"].values
+            if len(lab_arr) == 0:
+                # if missing label, skip this id
+                continue
+            lab = lab_arr[0]
+            if isinstance(lab, str):
+                lab = LABEL_MAP.get(lab, lab)
         # padding computation
         pad = (window - (len(temp) % window)) % window
         if padding == "zero" and pad:
@@ -80,7 +81,8 @@ def build_windows(
             else:
                 feat = seg  # Keep 3D: (window, n_features)
             X.append(feat)
-            y.append(lab)
+            if target is not None:
+                y.append(lab)
             groups.append(sid)
             start += stride
     if not X:
