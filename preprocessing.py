@@ -99,7 +99,7 @@ def scale_joint_columns(df):
     joint_cols = ["joint_" + str(i).zfill(2) for i in range(30)]
 
     for col in joint_cols:
-    df[col] = df[col].astype(np.float32)
+        df[col] = df[col].astype(np.float32)
 
     # Initialize the MinMaxScaler
     minmax_scaler = MinMaxScaler()

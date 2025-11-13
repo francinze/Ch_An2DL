@@ -4,6 +4,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score
 import pandas as pd
 import numpy as np
+from preprocessing import run_preprocessing
 
 
 # --- Strategy evaluator ---
@@ -18,21 +19,11 @@ def eval_strategy(df: pd.DataFrame, target: pd.DataFrame, params: dict, n_splits
         scores.append(f1_score(y[te], pred, average="macro"))
     return np.array(scores)
 
-# ---- Configurazione griglia ----
-WINDOWS = list(range(10, 601, 10))   # 10..600 step 10 (0 escluso perché invalido)
-STRIDES = list(range(10, 601, 10))
-PADDING_RUNS = ["zero", "drop_last"]  # due conti separati
-N_SPLITS_MAX = 5                      # max fold per GroupKFold
-
-# Se vuoi forzare le feature, imposta DATA_COLS (altrimenti usa quelle auto-rilevate in build_windows)
-# DATA_COLS = ['has_prosthetics'] + [c for c in df_train.columns if c.startswith('joint_')]
-DATA_COLS = None
-
-def _effective_splits(df, n_splits_max=N_SPLITS_MAX):
+def _effective_splits(df, n_splits_max):
     n_groups = int(df["sample_index"].nunique())
     return max(2, min(n_splits_max, n_groups))
 
-def run_grid(df, target, padding="zero", data_cols, n_splits_max, windows, strides):
+def run_grid(df, target, padding, data_cols, n_splits_max, windows, strides):
     """Valuta tutte le combinazioni (window, stride) ∈ WINDOWS×STRIDES con il padding richiesto.
     Ritorna un DataFrame con mean_macroF1/std per ciascuna coppia."""
     if "eval_strategy" not in globals():
@@ -41,7 +32,7 @@ def run_grid(df, target, padding="zero", data_cols, n_splits_max, windows, strid
     n_splits = _effective_splits(df, n_splits_max)
     for w in windows:
         for s in strides:
-            params = {"window": w, "stride": s, "labeling": "id", "padding": padding}
+            params = {"window": w, "stride": s, "padding": padding, "feature": "flatten"}
             if data_cols is not None:
                 params["data_cols"] = data_cols
             try:
@@ -53,17 +44,18 @@ def run_grid(df, target, padding="zero", data_cols, n_splits_max, windows, strid
                              "mean_macroF1": np.nan, "std": np.nan, "error": str(e)})
     return pd.DataFrame(rows)
 
-def run_sequencing_grid(df_train, target, n_splits_max=N_SPLITS_MAX, windows=WINDOWS, strides=STRIDES, data_cols=DATA_COLS):
+def run_sequencing_grid(df_train, target, n_splits_max, windows, strides, data_cols=None, padding_runs=["zero", "edge"]):
     # ---- Pre-flight check ----
     needed = ["df_train", "target", "build_windows", "eval_strategy"]
     missing = [n for n in needed if n not in globals()]
     if missing:
         print("⚠️ Mancano variabili/funzioni:", missing)
         print("Esegui le celle che definiscono df_train/target/build_windows/eval_strategy e riprova.")
+        return None
     else:
         # ---- Esecuzione dei due conti separati (padding diverso) ----
         all_results = []
-        for pad in PADDING_RUNS:
+        for pad in padding_runs:
             print(f"\n>>> Running 2D grid with padding = {pad}")
             df_res = run_grid(df_train, target, padding=pad, data_cols=data_cols, n_splits_max=n_splits_max, windows=windows, strides=strides)
             all_results.append(df_res)
@@ -87,4 +79,18 @@ def run_sequencing_grid(df_train, target, n_splits_max=N_SPLITS_MAX, windows=WIN
                     .head(20)
                     .to_string(index=False))
         
-    return results
+        return results
+
+if __name__ == "__main__":
+    run_preprocessing()
+    # Load data
+    df_train = pd.read_csv('data/X_train.csv')
+    target = pd.read_csv('data/Y_train.csv')
+
+    # Hyperparameters
+    N_SPLITS_MAX = 5
+    WINDOWS = list(range(100, 601, 100))   # 10..600 step 10 (0 escluso perché invalido)
+    STRIDES = list(range(100, 601, 100))
+    PADDING_RUNS = ["zero", "edge"]
+
+    run_sequencing_grid(df_train, target, n_splits_max=N_SPLITS_MAX, windows=WINDOWS, strides=STRIDES, padding_runs=PADDING_RUNS)
