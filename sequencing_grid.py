@@ -82,10 +82,7 @@ def run_sequencing_grid(df_train, target, n_splits_max, windows, strides, data_c
         return results
 
 if __name__ == "__main__":
-    run_preprocessing()
-    # Load data
-    df_train = pd.read_csv('data/X_train.csv')
-    target = pd.read_csv('data/Y_train.csv')
+    df_train, df_val, target, val_target = run_preprocessing()
 
     # Hyperparameters
     N_SPLITS_MAX = 5

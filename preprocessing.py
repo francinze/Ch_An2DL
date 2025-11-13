@@ -150,7 +150,6 @@ def train_val_split(df, target, val_ratio=0.2):
     random.seed(SEED) # Ensure reproducibility of shuffling
     random.shuffle(unique_users)
     input_shape = df.shape
-    num_classes = len(np.unique(target))
 
     print(f"Input shape: {input_shape}")
 
@@ -259,8 +258,4 @@ def run_preprocessing():
     target = apply_target_weighting(target)
     train_df, val_df, train_target, val_target = train_val_split(df, target, val_ratio=0.2)
 
-
-    train_df.to_csv("data/X_train.csv", index=False)
-    val_df.to_csv("data/X_val.csv", index=False)
-    train_target.to_csv("data/y_train.csv", index=False)
-    val_target.to_csv("data/y_val.csv", index=False)
+    return train_df, val_df, train_target, val_target
