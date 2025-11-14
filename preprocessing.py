@@ -4,6 +4,8 @@ SEED = 42
 # Import necessary libraries
 import os
 
+from preprocessing_embedding import add_time_features
+
 # Set environment variables before importing modules
 os.environ['PYTHONHASHSEED'] = str(SEED)
 os.environ['MPLCONFIGDIR'] = os.getcwd() + '/configs/'
@@ -259,20 +261,13 @@ def run_preprocessing():
     target = pd.read_csv("pirate_pain_train_labels.csv")
     target.head()
 
+
+    # Add time-based features (November 12 clue implementation)
+    df, df_test = add_time_features(df, df_test)
     df, df_test = add_prosthetics_feature(df, df_test)
     df = scale_joint_columns(df)
     df_test = scale_joint_columns(df_test)
     target = apply_target_weighting(target)
     train_df, val_df, train_target, val_target = train_val_split(df, target, val_ratio=0.2)
 
-    return train_df, val_df, train_target, val_target
-
-
-def run_test_preprocessing():
-    df_test = pd.read_csv("pirate_pain_test.csv")
-    df_test = df_test.drop(columns=['joint_30'])
-    
-    df_test, _ = add_prosthetics_feature(df_test, df_test)
-    df_test = scale_joint_columns(df_test, use_existing_scaler=True)
-
-    return df_test
+    return train_df, val_df, train_target, val_target, df_test
