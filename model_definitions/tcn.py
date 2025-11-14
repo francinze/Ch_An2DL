@@ -53,19 +53,31 @@ class _TemporalBlock(nn.Module):
 
 class TCN(nn.Module):
     """
-    TCNClassifier:
-    - Input:  (batch, seq_len, input_size)
+    TCN Classifier with embedding layers for categorical pain survey features.
+    
+    - Input:  (batch, seq_len, num_continuous_features) and (batch, seq_len, num_pain_surveys)
     - Output: (batch, num_classes) logits
-    Kwargs:
-        channels: List[int] — ampiezza dei layer (es. [64,128,256])
-        kernel_size: int — dimensione kernel (es. 5)
-        dropout: float — dropout nei blocchi (es. 0.3)
-        use_bn: bool — usare BatchNorm nei blocchi
-        causal: bool — conv causali (True) o 'same' simmetrica (False)
-        gap: str — 'avg' (default) o 'max' per il pooling temporale
+    
+    Treats pain surveys (0-4) as categorical, not continuous.
+    Each pain_survey column gets its own embedding layer.
+    Embeddings are concatenated with continuous features before TCN.
     """
-    def __init__(self, input_size, num_classes, **kwargs):
+    def __init__(self, num_continuous_features, num_classes=3, num_pain_surveys=4, 
+                 num_pain_levels=5, embedding_dim=3, **kwargs):
         super().__init__()
+        
+        self.num_pain_surveys = num_pain_surveys
+        self.embedding_dim = embedding_dim
+        
+        # Embedding layers for pain surveys
+        self.pain_embeddings = nn.ModuleList([
+            nn.Embedding(num_embeddings=num_pain_levels, embedding_dim=embedding_dim)
+            for _ in range(num_pain_surveys)
+        ])
+        
+        # Total input features after embedding
+        total_input_features = num_continuous_features + (num_pain_surveys * embedding_dim)
+        
         channels: List[int] = kwargs.get('channels', [64, 128, 256])
         kernel_size: int     = kwargs.get('kernel_size', 5)
         dropout: float       = kwargs.get('dropout', 0.3)
@@ -77,7 +89,7 @@ class TCN(nn.Module):
         assert gap in ('avg', 'max'), "gap deve essere 'avg' o 'max'"
 
         layers = []
-        in_ch = input_size  # trattiamo le feature come canali
+        in_ch = total_input_features  # use total features after embedding
         # dilations: 1,2,4,8,... per ogni blocco
         for i, out_ch in enumerate(channels):
             dilation = 2 ** i
@@ -95,18 +107,83 @@ class TCN(nn.Module):
             in_ch = out_ch
 
         self.tcn = nn.Sequential(*layers)
-        self.pool = nn.AdaptiveAvgPool1d(1) if gap == 'avg' else nn.AdaptiveMaxPool1d(1)
+        
+        # Attention mechanism (optional)
+        self.use_attention = True
+        if self.use_attention:
+            self.attn_W = nn.Linear(channels[-1], channels[-1], bias=True)
+            self.attn_v = nn.Linear(channels[-1], 1, bias=False)
+        else:
+            self.pool = nn.AdaptiveAvgPool1d(1) if gap == 'avg' else nn.AdaptiveMaxPool1d(1)
+        
         self.head = nn.Sequential(
-            nn.Flatten(),                  # (B, C, 1) -> (B, C)
+            nn.Flatten() if not self.use_attention else nn.Identity(),
             nn.LayerNorm(channels[-1]),
             nn.Dropout(dropout),
             nn.Linear(channels[-1], num_classes)
         )
+    
+    def attention(self, tcn_out):
+        """
+        Bahdanau-style attention over temporal dimension.
+        
+        Args:
+            tcn_out: (batch_size, channels, seq_len)
+        
+        Returns:
+            context: (batch_size, channels)
+            attn_weights: (batch_size, seq_len)
+        """
+        import torch
+        # Transpose to (batch, seq_len, channels)
+        x = tcn_out.transpose(1, 2)
+        
+        # u_t = tanh(W * h_t)
+        u = torch.tanh(self.attn_W(x))  # (B, T, C)
+        
+        # score_t = v^T u_t
+        scores = self.attn_v(u).squeeze(-1)  # (B, T)
+        
+        # α_t = softmax(scores)
+        attn_weights = torch.nn.functional.softmax(scores, dim=-1)  # (B, T)
+        
+        # context = Σ_t α_t * h_t
+        context = torch.bmm(attn_weights.unsqueeze(1), x).squeeze(1)  # (B, C)
+        return context, attn_weights
 
-    def forward(self, x):
+    def forward(self, categorical_input, continuous_input):
+        """
+        Args:
+            categorical_input: (batch_size, seq_length, num_pain_surveys)
+            continuous_input: (batch_size, seq_length, num_continuous_features)
+        
+        Returns:
+            logits: (batch_size, num_classes)
+        """
+        # Embed each pain survey column separately
+        embedded_pain_surveys = []
+        for i in range(self.num_pain_surveys):
+            pain_col = categorical_input[:, :, i].long()
+            embedded = self.pain_embeddings[i](pain_col)
+            embedded_pain_surveys.append(embedded)
+        
+        # Concatenate embedded pain surveys
+        embedded_pain = torch.cat(embedded_pain_surveys, dim=2)
+        
+        # Concatenate with continuous features
+        x = torch.cat([continuous_input, embedded_pain], dim=2)
+        
         # x: (B, T, F) -> permuta a (B, F, T) per Conv1d
         x = x.transpose(1, 2)
         y = self.tcn(x)             # (B, C, T)
-        y = self.pool(y)            # (B, C, 1)
-        logits = self.head(y)       # (B, num_classes)
+        
+        # Temporal pooling
+        if self.use_attention:
+            # Attention-based pooling
+            context, attn_weights = self.attention(y)  # (B, C)
+        else:
+            # Global pooling
+            context = self.pool(y).squeeze(-1)  # (B, C)
+        
+        logits = self.head(context)  # (B, num_classes)
         return logits

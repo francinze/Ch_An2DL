@@ -5,27 +5,23 @@ import torch.nn.functional as F
 
 class CNNLSTMClassifier(nn.Module):
     """
-    Hybrid CNN + LSTM for time-series classification.
+    Hybrid CNN + LSTM with embedding layers for categorical pain survey features.
     
     Architecture:
-        Conv1D blocks (local pattern extraction)
+        Embeddings for pain surveys
+        → Conv1D blocks (local pattern extraction)
         → LSTM layers (temporal reasoning)
         → Attention mechanism (optional)
         → FC layers → Softmax
-    
-    Input:  x -> (batch_size, seq_len, input_size)
-    Output: logits -> (batch_size, num_classes)
-    
-    Pros:
-        - Captures both short-term (CNN) and long-term (LSTM) patterns
-        - Often outperforms pure RNNs on real-world sensor data
-        - Reduces sequence length before LSTM, improving efficiency
     """
     
     def __init__(
         self,
-        input_size,
-        num_classes,
+        num_continuous_features,
+        num_classes=3,
+        num_pain_surveys=4,
+        num_pain_levels=5,
+        embedding_dim=3,
         cnn_filters=[64, 128],
         cnn_kernel_sizes=[5, 5],
         lstm_hidden_size=128,
@@ -37,8 +33,11 @@ class CNNLSTMClassifier(nn.Module):
     ):
         """
         Args:
-            input_size: Number of features per timestep
+            num_continuous_features: Number of continuous features (joints + prosthetics)
             num_classes: Number of output classes
+            num_pain_surveys: Number of pain survey columns (4)
+            num_pain_levels: Number of pain levels (5: 0-4)
+            embedding_dim: Dimension of embedding vectors
             cnn_filters: List of filter counts for each conv layer
             cnn_kernel_sizes: List of kernel sizes for each conv layer
             lstm_hidden_size: Hidden dimension of LSTM
@@ -49,19 +48,30 @@ class CNNLSTMClassifier(nn.Module):
         """
         super().__init__()
         
-        self.input_size = input_size
+        self.num_continuous_features = num_continuous_features
         self.num_classes = num_classes
         self.lstm_hidden_size = lstm_hidden_size
         self.lstm_num_layers = lstm_num_layers
         self.dropout_rate = dropout_rate
         self.bidirectional = bidirectional
         self.use_attention = use_attention
+        self.num_pain_surveys = num_pain_surveys
+        self.embedding_dim = embedding_dim
+        
+        # Embedding layers for pain surveys
+        self.pain_embeddings = nn.ModuleList([
+            nn.Embedding(num_embeddings=num_pain_levels, embedding_dim=embedding_dim)
+            for _ in range(num_pain_surveys)
+        ])
+        
+        # Total input features after embedding
+        total_input_features = num_continuous_features + (num_pain_surveys * embedding_dim)
         
         # -----------------------
         # 1) CNN Feature Extractor
         # -----------------------
         cnn_layers = []
-        in_channels = input_size
+        in_channels = total_input_features
         
         for i, (out_channels, kernel_size) in enumerate(zip(cnn_filters, cnn_kernel_sizes)):
             cnn_layers.extend([
@@ -133,17 +143,27 @@ class CNNLSTMClassifier(nn.Module):
         context = torch.bmm(attn_weights.unsqueeze(1), lstm_out).squeeze(1)
         return context, attn_weights
     
-    def forward(self, x):
+    def forward(self, categorical_input, continuous_input):
         """
-        Forward pass.
-        
         Args:
-            x: (batch_size, seq_len, input_size)
+            categorical_input: (batch_size, seq_length, num_pain_surveys)
+            continuous_input: (batch_size, seq_length, num_continuous_features)
         
         Returns:
             logits: (batch_size, num_classes)
         """
-        batch_size, seq_len, _ = x.shape
+        # Embed each pain survey column separately
+        embedded_pain_surveys = []
+        for i in range(self.num_pain_surveys):
+            pain_col = categorical_input[:, :, i].long()
+            embedded = self.pain_embeddings[i](pain_col)
+            embedded_pain_surveys.append(embedded)
+        
+        # Concatenate embedded pain surveys
+        embedded_pain = torch.cat(embedded_pain_surveys, dim=2)
+        
+        # Concatenate with continuous features
+        x = torch.cat([continuous_input, embedded_pain], dim=2)
         
         # 1) CNN Feature Extraction
         # Transpose to (batch, features, seq_len) for Conv1d
@@ -175,7 +195,7 @@ class CNNLSTMClassifier(nn.Module):
 
 class CNNGRUClassifier(nn.Module):
     """
-    Hybrid CNN + GRU variant.
+    Hybrid CNN + GRU with embedding layers.
     
     Similar to CNNLSTMClassifier but uses GRU instead of LSTM.
     GRU is often faster and requires less memory than LSTM.
@@ -183,8 +203,11 @@ class CNNGRUClassifier(nn.Module):
     
     def __init__(
         self,
-        input_size,
-        num_classes,
+        num_continuous_features,
+        num_classes=3,
+        num_pain_surveys=4,
+        num_pain_levels=5,
+        embedding_dim=3,
         cnn_filters=[64, 128],
         cnn_kernel_sizes=[5, 5],
         gru_hidden_size=128,
@@ -196,19 +219,30 @@ class CNNGRUClassifier(nn.Module):
     ):
         super().__init__()
         
-        self.input_size = input_size
+        self.num_continuous_features = num_continuous_features
         self.num_classes = num_classes
         self.gru_hidden_size = gru_hidden_size
         self.gru_num_layers = gru_num_layers
         self.dropout_rate = dropout_rate
         self.bidirectional = bidirectional
         self.use_attention = use_attention
+        self.num_pain_surveys = num_pain_surveys
+        self.embedding_dim = embedding_dim
+        
+        # Embedding layers for pain surveys
+        self.pain_embeddings = nn.ModuleList([
+            nn.Embedding(num_embeddings=num_pain_levels, embedding_dim=embedding_dim)
+            for _ in range(num_pain_surveys)
+        ])
+        
+        # Total input features after embedding
+        total_input_features = num_continuous_features + (num_pain_surveys * embedding_dim)
         
         # -----------------------
         # 1) CNN Feature Extractor
         # -----------------------
         cnn_layers = []
-        in_channels = input_size
+        in_channels = total_input_features
         
         for i, (out_channels, kernel_size) in enumerate(zip(cnn_filters, cnn_kernel_sizes)):
             cnn_layers.extend([
@@ -273,16 +307,28 @@ class CNNGRUClassifier(nn.Module):
         context = torch.bmm(attn_weights.unsqueeze(1), gru_out).squeeze(1)
         return context, attn_weights
     
-    def forward(self, x):
+    def forward(self, categorical_input, continuous_input):
         """
-        Forward pass.
-        
         Args:
-            x: (batch_size, seq_len, input_size)
+            categorical_input: (batch_size, seq_length, num_pain_surveys)
+            continuous_input: (batch_size, seq_length, num_continuous_features)
         
         Returns:
             logits: (batch_size, num_classes)
         """
+        # Embed each pain survey column separately
+        embedded_pain_surveys = []
+        for i in range(self.num_pain_surveys):
+            pain_col = categorical_input[:, :, i].long()
+            embedded = self.pain_embeddings[i](pain_col)
+            embedded_pain_surveys.append(embedded)
+        
+        # Concatenate embedded pain surveys
+        embedded_pain = torch.cat(embedded_pain_surveys, dim=2)
+        
+        # Concatenate with continuous features
+        x = torch.cat([continuous_input, embedded_pain], dim=2)
+        
         # 1) CNN Feature Extraction
         x = x.transpose(1, 2)  # (B, F, T)
         cnn_out = self.cnn(x)  # (B, C, T')
