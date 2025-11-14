@@ -5,15 +5,19 @@ import torch.nn.functional as F
 
 class BiLSTM(nn.Module):
     """
-    BiLSTM + Bahdanau-style Attention per time-series classification.
+    BiLSTM + Bahdanau-style Attention with embedding layers.
 
-    Input:  x  -> (batch_size, seq_len, input_size)
-    Output: logits -> (batch_size, num_classes)
+    Treats pain surveys (0-4) as categorical, not continuous.
+    Each pain_survey column gets its own embedding layer.
+    Embeddings are concatenated with continuous features before BiLSTM.
     """
     def __init__(
         self,
-        input_size,
-        num_classes,
+        num_continuous_features,
+        num_classes=3,
+        num_pain_surveys=4,
+        num_pain_levels=3,
+        embedding_dim=3,
         hidden_size=128,
         num_layers=2,
         dropout_rate=0.3,
@@ -21,18 +25,28 @@ class BiLSTM(nn.Module):
     ):
         super().__init__()
 
-        self.input_size = input_size
+        self.num_continuous_features = num_continuous_features
         self.num_classes = num_classes
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.dropout_rate = dropout_rate
+        self.num_pain_surveys = num_pain_surveys
+        self.embedding_dim = embedding_dim
+
+        # Embedding layers for pain surveys
+        self.pain_embeddings = nn.ModuleList([
+            nn.Embedding(num_embeddings=num_pain_levels, embedding_dim=embedding_dim)
+            for _ in range(num_pain_surveys)
+        ])
+        
+        # Total input features after embedding
+        total_input_features = num_continuous_features + (num_pain_surveys * embedding_dim)
 
         # -----------------------
         # 1) BiLSTM stack
         # -----------------------
-        # batch_first=True → (B, T, F)
         self.lstm = nn.LSTM(
-            input_size=input_size,
+            input_size=total_input_features,
             hidden_size=hidden_size,
             num_layers=num_layers,
             batch_first=True,
@@ -83,10 +97,28 @@ class BiLSTM(nn.Module):
         context = torch.bmm(attn_weights.unsqueeze(1), lstm_out).squeeze(1)
         return context, attn_weights
 
-    def forward(self, x):
+    def forward(self, categorical_input, continuous_input):
         """
-        x: (batch_size, seq_len, input_size)
+        Args:
+            categorical_input: (batch_size, seq_length, num_pain_surveys)
+            continuous_input: (batch_size, seq_length, num_continuous_features)
+        
+        Returns:
+            logits: (batch_size, num_classes)
         """
+        # Embed each pain survey column separately
+        embedded_pain_surveys = []
+        for i in range(self.num_pain_surveys):
+            pain_col = categorical_input[:, :, i].long()
+            embedded = self.pain_embeddings[i](pain_col)
+            embedded_pain_surveys.append(embedded)
+        
+        # Concatenate embedded pain surveys
+        embedded_pain = torch.cat(embedded_pain_surveys, dim=2)
+        
+        # Concatenate with continuous features
+        x = torch.cat([continuous_input, embedded_pain], dim=2)
+        
         # 1) BiLSTM
         # lstm_out: (B, T, 2*H)
         lstm_out, _ = self.lstm(x)
