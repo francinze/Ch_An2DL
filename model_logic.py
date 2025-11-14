@@ -266,3 +266,223 @@ def fit(model, train_loader, val_loader, epochs, criterion, optimizer, scaler, d
         writer.close()
 
     return model, training_history
+
+
+def train_epoch_with_embeddings(model, loader, criterion, optimizer, scaler, device):
+    """
+    Train one epoch for embedding-based model.
+    
+    Args:
+        model: CNNWithEmbeddings instance
+        loader: DataLoader with EmbeddingDataset
+        criterion: Loss function
+        optimizer: Optimizer
+        scaler: GradScaler for mixed precision (or None)
+        device: torch.device
+    
+    Returns:
+        avg_loss: Average loss for the epoch
+        f1: Macro F1 score
+    """
+    model.train()
+    total_loss = 0
+    all_preds = []
+    all_labels = []
+    
+    for cat_batch, cont_batch, labels in loader:
+        cat_batch = cat_batch.to(device)
+        cont_batch = cont_batch.to(device)
+        labels = labels.to(device)
+        
+        optimizer.zero_grad()
+        
+        if scaler:
+            with torch.cuda.amp.autocast():
+                outputs = model(cat_batch, cont_batch)
+                loss = criterion(outputs, labels)
+            scaler.scale(loss).backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            outputs = model(cat_batch, cont_batch)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optimizer.step()
+        
+        total_loss += loss.item()
+        preds = torch.argmax(outputs, dim=1)
+        all_preds.extend(preds.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
+    
+    avg_loss = total_loss / len(loader)
+    f1 = f1_score(all_labels, all_preds, average='macro')
+    return avg_loss, f1
+
+
+def validate_with_embeddings(model, loader, criterion, device):
+    """
+    Validate embedding-based model.
+    
+    Args:
+        model: CNNWithEmbeddings instance
+        loader: DataLoader with EmbeddingDataset
+        criterion: Loss function
+        device: torch.device
+    
+    Returns:
+        avg_loss: Average loss
+        f1: Macro F1 score
+        all_preds: List of predictions
+        all_labels: List of true labels
+    """
+    model.eval()
+    total_loss = 0
+    all_preds = []
+    all_labels = []
+    
+    with torch.no_grad():
+        for cat_batch, cont_batch, labels in loader:
+            cat_batch = cat_batch.to(device)
+            cont_batch = cont_batch.to(device)
+            labels = labels.to(device)
+            
+            outputs = model(cat_batch, cont_batch)
+            loss = criterion(outputs, labels)
+            
+            total_loss += loss.item()
+            preds = torch.argmax(outputs, dim=1)
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+    
+    avg_loss = total_loss / len(loader)
+    f1 = f1_score(all_labels, all_preds, average='macro')
+    return avg_loss, f1, all_preds, all_labels
+
+def fit_with_embeddings(model, train_loader, val_loader, epochs, criterion, optimizer, scaler, device,
+        l1_lambda=0, l2_lambda=0, patience=0, evaluation_metric="val_f1", mode='max',
+        restore_best_weights=True, writer=None, verbose=10, experiment_name=""):
+    """
+    Train the embedding-based neural network model on the training data and validate on the validation data.
+
+    Args:
+        model (nn.Module): The neural network model to train
+        train_loader (DataLoader): PyTorch DataLoader containing training data batches
+        val_loader (DataLoader): PyTorch DataLoader containing validation data batches
+        epochs (int): Number of training epochs
+        criterion (nn.Module): Loss function (e.g., CrossEntropyLoss, MSELoss)
+        optimizer (torch.optim): Optimization algorithm (e.g., Adam, SGD)
+        scaler (GradScaler): PyTorch's gradient scaler for mixed precision training
+        device (torch.device): Computing device ('cuda' for GPU, 'cpu' for CPU
+        l1_lambda (float): L1 regularization coefficient (default: 0)
+        l2_lambda (float): L2 regularization coefficient (default: 0)
+        patience (int): Number of epochs to wait for improvement before early stopping (default: 0)
+        evaluation_metric (str): Metric to monitor for early stopping (default: "val_f1")
+        mode (str): 'max' for maximizing the metric, 'min' for minimizing (default: 'max')
+        restore_best_weights (bool): Whether to restore model weights from best epoch (default: True)
+        writer (SummaryWriter, optional): TensorBoard SummaryWriter object for logging (default: None)
+        verbose (int, optional): Frequency of printing training progress (default: 10)
+        experiment_name (str, optional): Experiment name for saving models (default: "")
+    Returns:
+        tuple: (model, training_history) - Trained model and metrics history
+    """
+    # Initialize metrics tracking
+    training_history = {
+        'train_loss': [], 'val_loss': [],
+        'train_f1': [], 'val_f1': []
+    }
+    # Configure early stopping if patience is set
+    if patience > 0:
+        patience_counter = 0
+        best_metric = float('-inf') if mode == 'max' else float('inf')
+        best_epoch = 0
+    
+    print(f"Training {epochs} epochs...")
+    # Main training loop: iterate through epochs
+    for epoch in range(1, epochs + 1):
+        # Forward pass through training data, compute gradients, update weights
+        train_loss, train_f1 = train_epoch_with_embeddings(
+            model, train_loader, criterion, optimizer, scaler, device
+        )
+
+        # Evaluate model on validation data without updating weights
+        val_loss, val_f1, _, _ = validate_with_embeddings(
+            model, val_loader, criterion, device
+        )
+
+        # Store metrics for plotting and analysis
+        training_history['train_loss'].append(train_loss)
+        training_history['val_loss'].append(val_loss)
+        training_history['train_f1'].append(train_f1)
+        training_history['val_f1'].append(val_f1)
+
+        # Write metrics to TensorBoard for visualization
+        if writer is not None:
+            log_metrics_to_tensorboard(
+                writer, epoch, train_loss, train_f1, val_loss, val_f1, model
+            )
+
+        # Print progress every N epochs or on first epoch
+        if verbose > 0:
+            if epoch % verbose == 0 or epoch == 1:
+                print(f"Epoch {epoch:3d}/{epochs} | "
+                    f"Train: Loss={train_loss:.4f}, F1 Score={train_f1:.4f} | "
+                    f"Val: Loss={val_loss:.4f}, F1 Score={val_f1:.4f}")
+
+        # Early stopping logic: monitor metric and save best model
+        if patience > 0:
+            current_metric = training_history[evaluation_metric][-1]
+            is_improvement = (current_metric > best_metric) if mode == 'max' else (current_metric < best_metric)
+
+            if is_improvement:
+                best_metric = current_metric
+                best_epoch = epoch
+                torch.save(model.state_dict(), "models/"+experiment_name+'_model.pt')
+                patience_counter = 0
+            else:
+                patience_counter += 1
+                if patience_counter >= patience:
+                    print(f"Early stopping triggered after {epoch} epochs.")
+                    break
+    # Restore best model weights if early stopping was used
+    if restore_best_weights and patience > 0:
+        model.load_state_dict(torch.load("models/"+experiment_name+'_model.pt'))
+        print(f"Best model restored from epoch {best_epoch} with {evaluation_metric} {best_metric:.4f}")
+
+    # Save final model if no early stopping
+    if patience == 0:
+        torch.save(model.state_dict(), "models/"+experiment_name+'_model.pt')
+
+    # Close TensorBoard writer
+    if writer is not None:
+        writer.close()
+
+
+    # ============================================================================
+    # RESULTS
+    # ============================================================================
+    print("\n" + "=" * 70)
+    print("📊 TRAINING RESULTS:")
+    print("=" * 70)
+    print(f"  Initial val F1: {training_history['val_f1'][0]:.4f}")
+    print(f"  Final val F1:   {training_history['val_f1'][-1]:.4f}")
+    print(f"  Best val F1:    {best_metric:.4f}")
+    print(f"  Improvement:    {best_metric - training_history['val_f1'][0]:+.4f}")
+
+    # Per-class predictions
+    from sklearn.metrics import classification_report
+    model.eval()
+    val_loss, val_f1, val_preds, val_true = validate_with_embeddings(
+        model, val_loader, criterion, device
+    )
+
+    print("\n" + "=" * 70)
+    print("📈 CLASSIFICATION REPORT:")
+    print("=" * 70)
+    print(classification_report(
+        val_true, val_preds,
+        target_names=['no_pain', 'low_pain', 'high_pain'],
+        digits=4
+    ))
+    return model, training_history

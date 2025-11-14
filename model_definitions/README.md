@@ -57,6 +57,53 @@ model = CNN1DClassifier(
 )
 ```
 
+### ⭐ 3. `cnn_with_embeddings.py` - CNNWithEmbeddings (NEW - Nov 14, 2025)
+**Implements Clue #7: Embedding Layer for Pain Surveys**
+
+- **Architecture**: 1D CNN with embedding layers for categorical features
+- **Input**: Separate categorical and continuous inputs
+  - `categorical_input`: `(batch_size, seq_length, num_pain_surveys)`
+  - `continuous_input`: `(batch_size, seq_length, num_continuous_features)`
+- **Output**: `(batch_size, num_classes)` logits
+- **Key Innovation**:
+  - Pain surveys (0-4) treated as **categorical**, not continuous
+  - Each pain_survey column gets its own embedding layer
+  - Embeddings learn semantic relationships between pain levels
+  - Concatenated with normalized joint sensor readings before CNN
+- **Used in**:
+  - `solution_cnn_with_embeddings.ipynb`
+
+**Example usage:**
+```python
+from model_definitions.cnn_with_embeddings import CNNWithEmbeddings
+
+model = CNNWithEmbeddings(
+    num_continuous_features=31,  # 30 joints + 1 prosthetics
+    num_classes=3,
+    num_pain_surveys=4,
+    num_pain_levels=5,           # Pain levels: 0-4
+    embedding_dim=3,             # Each pain level → 3D vector
+    num_filters=[64, 128, 256],
+    kernel_sizes=[5, 5, 3],
+    dropout_rate=0.4
+)
+
+# Forward pass with separate inputs
+output = model(categorical_input, continuous_input)
+
+# Visualize learned embeddings
+embeddings = model.get_embedding_weights(survey_idx=0)
+```
+
+**Includes Training Utilities:**
+- `EmbeddingDataset`: Custom dataset class for categorical + continuous inputs
+- `train_epoch_with_embeddings()`: Training loop with gradient clipping and mixed precision
+- `validate_with_embeddings()`: Validation loop that returns predictions and metrics
+
+**Related Files:**
+- Preprocessing: `preprocessing.py` → `prepare_data_with_embeddings()`, `build_sequences_with_embeddings()`
+- Exploration: `data_exploration.ipynb` (embedding visualization cells)
+
 ## Creating a New Model
 
 To add a new model architecture:

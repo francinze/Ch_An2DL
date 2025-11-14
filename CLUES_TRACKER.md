@@ -39,17 +39,35 @@ But these are **ordinal categories**, not continuous measurements. An **Embeddin
 
 **What's Currently Implemented:**
 ✅ Body features (`n_legs`, `n_hands`, `n_eyes`) - Already consolidated into a single binary `has_prosthetics` feature
-❌ Pain surveys - Currently treated as continuous integers (0-4), **NOT using embeddings**
+✅ **Pain surveys - NOW using embeddings!** (Implemented November 14, 2025)
 
 **Action Steps:**
-- [ ] Add embedding layers for each pain_survey column (pain_survey_1 through pain_survey_4)
-- [ ] Set embedding dimension (e.g., embed_dim = 3 for 5 categories [0-4])
-- [ ] Modify model architecture to accept categorical inputs separately from continuous joint features
-- [ ] Concatenate embedded pain surveys with joint sensor features before feeding to CNN/RNN layers
+- [x] Add embedding layers for each pain_survey column (pain_survey_1 through pain_survey_4)
+- [x] Set embedding dimension (embed_dim = 3 for 5 categories [0-4])
+- [x] Modify model architecture to accept categorical inputs separately from continuous joint features
+- [x] Concatenate embedded pain surveys with joint sensor features before feeding to CNN/RNN layers
 - [ ] Compare performance: embeddings vs. treating surveys as continuous vs. one-hot encoding
 - [ ] Visualize learned embeddings to check if similar pain levels cluster together
 
-**Status:** 🔴 Not Started
+**Status:** 🟢 Implemented
+
+**Implementation Details:**
+- **Model**: `model_definitions/cnn_with_embeddings.py` - CNN model with embedding layers + training utilities
+  - `CNNWithEmbeddings`: Model architecture
+  - `EmbeddingDataset`: Custom dataset for categorical + continuous features
+  - `train_epoch_with_embeddings()`: Training loop
+  - `validate_with_embeddings()`: Validation loop
+- **Preprocessing**: `preprocessing.py` - Added `prepare_data_with_embeddings()` and `build_sequences_with_embeddings()`
+- **Exploration**: `data_exploration.ipynb` - Added embedding analysis visualization (new cells after pain survey ANOVA)
+- **Architecture**:
+  - 4 separate `nn.Embedding` layers (one per pain_survey column)
+  - Each embedding: 5 categories (pain levels 0-4) → 3D vectors
+  - Embedded vectors concatenated with 31 continuous features (30 joints + has_prosthetics)
+  - Total input to CNN: 31 continuous + 12 embedded (4 surveys × 3 dims) = 43 features
+- **Training approach**:
+  - Custom `EmbeddingDataset` class handles separate categorical/continuous inputs
+  - Model forward pass: `model(categorical_input, continuous_input)`
+  - Embedding visualization function included to analyze learned relationships
 
 **Notes:**
 - **ANOVA analysis showed pain surveys are significantly correlated with pain labels** (p < 0.0001)
@@ -404,22 +422,55 @@ If `time` were actual datetime:
 - **Missing**: `time` column
 
 **Action Steps:**
-- [ ] Analyze what the `time` column represents (sequential index vs actual timestamp)
-- [ ] Add normalized time as a feature: `df['time_normalized'] = df['time'] / df.groupby('sample_index')['time'].transform('max')`
-- [ ] Check if temporal patterns exist: correlation between time and pain labels
-- [ ] If sequential patterns exist, add cyclical encoding: sin/cos transforms
-- [ ] Consider time position categories (early/mid/late) with embeddings
+- [x] Analyze what the `time` column represents (sequential index vs actual timestamp)
+- [x] Add normalized time as a feature: `df['time_normalized'] = df['time'] / df.groupby('sample_index')['time'].transform('max')`
+- [x] Check if temporal patterns exist: correlation between time and pain labels
+- [x] Add cyclical encoding: sin/cos transforms with period based on average sequence length
+- [x] Add time position categories (early/mid/late) with embeddings
 - [ ] Test if adding time features improves model performance
-- [ ] Include time in `data_cols` for model input
+- [ ] Include time features in model training workflows
 
-**Status:** 🔴 Not Started
+**Status:** 🟢 Implemented
+
+**Implementation Details:**
+- **Location**: `preprocessing.py` - Added `add_time_features()` function
+- **New Features Created** (4 total):
+  1. **time_normalized**: Continuous [0.0, 1.0] - Relative position in sequence
+     - Formula: `time / max(time)` per pirate
+     - Captures progression through recording session
+  
+  2. **time_sin**: Continuous [-1.0, 1.0] - Cyclical encoding (sine component)
+     - Formula: `sin(2π * time / period)`
+     - Period automatically calculated as ~1/3 of average sequence length
+     - Captures repeating patterns within sequences
+  
+  3. **time_cos**: Continuous [-1.0, 1.0] - Cyclical encoding (cosine component)
+     - Formula: `cos(2π * time / period)`
+     - Paired with time_sin for complete cyclical representation
+  
+  4. **time_position**: Categorical [0, 1, 2] - Early/Mid/Late indicator
+     - 0 = Early (0-33% of sequence)
+     - 1 = Mid (33-66% of sequence)
+     - 2 = Late (66-100% of sequence)
+     - Uses embeddings: `nn.Embedding(num_embeddings=3, embedding_dim=2)`
+
+- **Integration**:
+  - Added to `run_preprocessing()` and `run_test_preprocessing()` pipelines
+  - Updated `prepare_data_with_embeddings()` to include time features
+  - Continuous time features (normalized, sin, cos) → concatenated with joint sensors
+  - Categorical time feature (position) → embedded alongside pain surveys
+
+- **Feature Organization**:
+  - **Categorical** (for embeddings): pain_survey_1-4 + time_position (5 features)
+  - **Continuous**: 30 joints + time_normalized + time_sin + time_cos + has_prosthetics (34 features)
 
 **Notes:**
-- **Current status**: Time column exists but is never used as a feature
-- **Data structure**: Each pirate has variable-length sequences (~160 timesteps for sample 000)
-- **Time column values**: Simple sequential index (0, 1, 2, 3, ...)
-- **Potential benefit**: Time context could help distinguish pain progression patterns
-- **Example**: Maybe pain increases over time during an activity, or certain timesteps are critical
+- **Time column analysis**: Sequential index (0, 1, 2, ...) representing timesteps in recording
+- **Data structure**: Variable-length sequences per pirate (~50-200 timesteps)
+- **Cyclical period**: Automatically set based on average sequence length to create ~3 cycles per sequence
+- **Potential benefit**: Time context could capture pain progression patterns during activities
+- **Next step**: Integrate into model training and evaluate performance improvement
+- **Original time column**: Preserved for reference/debugging
 - **Connection to Clue #7 (Embeddings)**: If time is binned into categories, should use embeddings
 - **Cyclical encoding**: Useful if patterns repeat (e.g., gait cycles, repetitive motions)
 - **Easy to test**: Simply add `time` to feature list and retrain
