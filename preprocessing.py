@@ -48,9 +48,94 @@ df_test = df_test.drop(columns=['joint_30'])
 
 print("Training data shape:", df.shape)
 
+def add_time_features(df, df_test):
+    """
+    Add time-based features implementing November 12 clue:
+    'Not only what happens, but when. Time, not just an index, but a feature it is.'
+    
+    Treats the 'time' column as a rich feature rather than ignoring it.
+    Creates both normalized position and cyclical encodings.
+    """
+    print("\nCreating time-based features from 'time' column")
+    print("=" * 60)
+    
+    # Feature 1: Normalized time (position in sequence: 0.0 to 1.0)
+    print("\n1. Normalized Time (relative position in sequence)")
+    df['time_normalized'] = df.groupby('sample_index')['time'].transform(
+        lambda x: x / x.max() if x.max() > 0 else 0
+    )
+    df_test['time_normalized'] = df_test.groupby('sample_index')['time'].transform(
+        lambda x: x / x.max() if x.max() > 0 else 0
+    )
+    
+    # Analyze sequence lengths to determine cyclical period
+    train_lengths = df.groupby('sample_index')['time'].max()
+    test_lengths = df_test.groupby('sample_index')['time'].max()
+    avg_length = train_lengths.mean()
+    
+    print(f"   - Average sequence length: {avg_length:.1f} timesteps")
+    print(f"   - Train range: {train_lengths.min():.0f} to {train_lengths.max():.0f}")
+    print(f"   - Test range: {test_lengths.min():.0f} to {test_lengths.max():.0f}")
+    
+    # Feature 2: Cyclical encoding (captures periodic patterns)
+    # Use a period based on average sequence length for meaningful cycles
+    period = max(50, avg_length / 3)  # Create ~3 cycles per sequence
+    print(f"\n2. Cyclical Encoding (period={period:.1f} timesteps)")
+    print(f"   - Captures repeating patterns within sequences")
+    
+    df['time_sin'] = np.sin(2 * np.pi * df['time'] / period)
+    df['time_cos'] = np.cos(2 * np.pi * df['time'] / period)
+    df_test['time_sin'] = np.sin(2 * np.pi * df_test['time'] / period)
+    df_test['time_cos'] = np.cos(2 * np.pi * df_test['time'] / period)
+    
+    # Feature 3: Time position categories (early/mid/late)
+    print("\n3. Time Position Category (early/mid/late in sequence)")
+    
+    def categorize_time_position(group):
+        normalized = group / group.max() if group.max() > 0 else 0
+        return pd.cut(normalized, bins=[0, 0.33, 0.66, 1.0], 
+                     labels=[0, 1, 2], include_lowest=True).astype(int)
+    
+    df['time_position'] = df.groupby('sample_index')['time'].transform(categorize_time_position)
+    df_test['time_position'] = df_test.groupby('sample_index')['time'].transform(categorize_time_position)
+    
+    print("   - 0: Early (0-33% of sequence)")
+    print("   - 1: Mid (33-66% of sequence)")
+    print("   - 2: Late (66-100% of sequence)")
+    
+    # Show distribution of time position categories
+    print("\n" + "=" * 60)
+    print("Distribution of time position categories:")
+    print("=" * 60)
+    print("\nTraining set:")
+    train_dist = df['time_position'].value_counts().sort_index()
+    for value, count in train_dist.items():
+        label = ['Early', 'Mid', 'Late'][value]
+        pct = (count / len(df)) * 100
+        print(f"  {value} ({label:5s}): {count:6,} samples ({pct:.2f}%)")
+    
+    print("\nTest set:")
+    test_dist = df_test['time_position'].value_counts().sort_index()
+    for value, count in test_dist.items():
+        label = ['Early', 'Mid', 'Late'][value]
+        pct = (count / len(df_test)) * 100
+        print(f"  {value} ({label:5s}): {count:6,} samples ({pct:.2f}%)")
+    
+    print("\n" + "=" * 60)
+    print("Summary: Created 4 new time features")
+    print("=" * 60)
+    print("  ✅ time_normalized: Continuous [0.0, 1.0] - position in sequence")
+    print("  ✅ time_sin: Continuous [-1.0, 1.0] - cyclical encoding")
+    print("  ✅ time_cos: Continuous [-1.0, 1.0] - cyclical encoding")
+    print("  ✅ time_position: Categorical [0, 1, 2] - early/mid/late (for embeddings)")
+    print("\n  Note: Original 'time' column preserved for reference")
+    print("=" * 60)
+    
+    return df, df_test
+
 def add_prosthetics_feature(df, df_test):
     # Create binary 'has_prosthetics' feature (0 = all natural, 1 = has prosthetics)
-    print("Creating consolidated feature: 'has_prosthetics'")
+    print("\nCreating consolidated feature: 'has_prosthetics'")
     print("=" * 60)
 
     # Create the new feature
@@ -249,30 +334,245 @@ def build_test_sequences(df, window=200, stride=200):
 # 
 # Questo è il milgiore
 
+def prepare_data_with_embeddings(df, df_test):
+    """
+    Prepare data for models that use embeddings for pain surveys and time position.
+    
+    Returns separate arrays for:
+    - Categorical features (pain surveys + time_position): kept as integers for embedding lookup
+    - Continuous features (joints + prosthetics + time features): normalized floats
+    
+    This implements:
+    - November 7 clue: treat pain surveys as categorical features that need embeddings
+    - November 12 clue: use time as a rich feature (normalized, cyclical, categorical)
+    """
+    # Pain survey columns (categorical: 0-4)
+    pain_survey_cols = ['pain_survey_1', 'pain_survey_2', 'pain_survey_3', 'pain_survey_4']
+    
+    # Time categorical column (0-2: early/mid/late)
+    time_categorical_cols = ['time_position']
+    
+    # All categorical columns for embeddings
+    categorical_cols = pain_survey_cols + time_categorical_cols
+    
+    # Joint columns (continuous)
+    joint_cols = ["joint_" + str(i).zfill(2) for i in range(30)]
+    
+    # Time continuous columns (normalized + cyclical)
+    time_continuous_cols = ['time_normalized', 'time_sin', 'time_cos']
+    
+    print("=" * 70)
+    print("Preparing data for EMBEDDING-based models with TIME FEATURES")
+    print("=" * 70)
+    print(f"\n✅ Categorical features (for embeddings):")
+    print(f"   - Pain surveys: {pain_survey_cols}")
+    print(f"     → nn.Embedding(num_embeddings=5, embedding_dim=3)")
+    print(f"   - Time position: {time_categorical_cols}")
+    print(f"     → nn.Embedding(num_embeddings=3, embedding_dim=2)")
+    print(f"\n✅ Continuous features: {len(joint_cols)} joints + {len(time_continuous_cols)} time + has_prosthetics")
+    print(f"   - Joint sensors: {len(joint_cols)} features (normalized)")
+    print(f"   - Time features: {time_continuous_cols}")
+    print(f"   - Body feature: has_prosthetics")
+    print("=" * 70)
+    
+    # Verify categorical features are integers in valid range
+    for col in pain_survey_cols:
+        train_unique = df[col].unique()
+        test_unique = df_test[col].unique()
+        print(f"\n{col}: train={sorted(train_unique)}, test={sorted(test_unique)}")
+        
+        # Ensure they are integers
+        df[col] = df[col].astype(np.int64)
+        df_test[col] = df_test[col].astype(np.int64)
+    
+    # Verify time_position is integer
+    for col in time_categorical_cols:
+        train_unique = df[col].unique()
+        test_unique = df_test[col].unique()
+        print(f"\n{col}: train={sorted(train_unique)}, test={sorted(test_unique)}")
+        df[col] = df[col].astype(np.int64)
+        df_test[col] = df_test[col].astype(np.int64)
+    
+    return df, df_test, categorical_cols, joint_cols + time_continuous_cols + ['has_prosthetics']
+
+def build_sequences_with_embeddings(df, target, window=200, stride=200, 
+                                   pain_survey_cols=None, continuous_cols=None):
+    """
+    Build sequences separating categorical (pain surveys) from continuous features.
+    
+    Returns:
+        categorical_sequences: (N, window, 4) - pain survey values for embedding
+        continuous_sequences: (N, window, num_continuous) - normalized joint + prosthetics
+        labels: (N,) - pain labels
+    """
+    if pain_survey_cols is None:
+        pain_survey_cols = ['pain_survey_1', 'pain_survey_2', 'pain_survey_3', 'pain_survey_4']
+    
+    if continuous_cols is None:
+        # Joints + has_prosthetics
+        joint_cols = ["joint_" + str(i).zfill(2) for i in range(30)]
+        continuous_cols = joint_cols + ['has_prosthetics']
+    
+    # Ensure window is divisible by stride
+    assert window % stride == 0
+    
+    categorical_data = []
+    continuous_data = []
+    labels = []
+    
+    for id in df['sample_index'].unique():
+        # Extract categorical features (pain surveys)
+        cat_temp = df[df['sample_index'] == id][pain_survey_cols].values
+        
+        # Extract continuous features (joints + prosthetics)
+        cont_temp = df[df['sample_index'] == id][continuous_cols].values
+        
+        # Get label
+        label = target[target['sample_index'] == id]['label'].values[0]
+        
+        # Calculate padding
+        padding_len = window - len(cat_temp) % window
+        
+        # Pad categorical data
+        cat_padding = np.zeros((padding_len, len(pain_survey_cols)), dtype='int64')
+        cat_temp = np.concatenate((cat_temp, cat_padding))
+        
+        # Pad continuous data
+        cont_padding = np.zeros((padding_len, len(continuous_cols)), dtype='float32')
+        cont_temp = np.concatenate((cont_temp, cont_padding))
+        
+        # Build windows
+        idx = 0
+        while idx + window <= len(cat_temp):
+            categorical_data.append(cat_temp[idx:idx + window])
+            continuous_data.append(cont_temp[idx:idx + window])
+            labels.append(label)
+            idx += stride
+    
+    categorical_data = np.array(categorical_data)
+    continuous_data = np.array(continuous_data)
+    labels = np.array(labels)
+    
+    print(f"\n📊 Sequences built:")
+    print(f"   Categorical shape: {categorical_data.shape} (for embeddings)")
+    print(f"   Continuous shape: {continuous_data.shape} (joints + prosthetics)")
+    print(f"   Labels shape: {labels.shape}")
+    
+    return categorical_data, continuous_data, labels
+
+def build_test_sequences_with_embeddings(df, window=200, stride=200,
+                                        pain_survey_cols=None, continuous_cols=None):
+    """
+    Build test sequences separating categorical from continuous features.
+    """
+    if pain_survey_cols is None:
+        pain_survey_cols = ['pain_survey_1', 'pain_survey_2', 'pain_survey_3', 'pain_survey_4']
+    
+    if continuous_cols is None:
+        joint_cols = ["joint_" + str(i).zfill(2) for i in range(30)]
+        continuous_cols = joint_cols + ['has_prosthetics']
+    
+    assert window % stride == 0
+    
+    categorical_data = []
+    continuous_data = []
+    
+    for id in df['sample_index'].unique():
+        cat_temp = df[df['sample_index'] == id][pain_survey_cols].values
+        cont_temp = df[df['sample_index'] == id][continuous_cols].values
+        
+        padding_len = window - len(cat_temp) % window
+        
+        cat_padding = np.zeros((padding_len, len(pain_survey_cols)), dtype='int64')
+        cat_temp = np.concatenate((cat_temp, cat_padding))
+        
+        cont_padding = np.zeros((padding_len, len(continuous_cols)), dtype='float32')
+        cont_temp = np.concatenate((cont_temp, cont_padding))
+        
+        idx = 0
+        while idx + window <= len(cat_temp):
+            categorical_data.append(cat_temp[idx:idx + window])
+            continuous_data.append(cont_temp[idx:idx + window])
+            idx += stride
+    
+    categorical_data = np.array(categorical_data)
+    continuous_data = np.array(continuous_data)
+    
+    return categorical_data, continuous_data
+
 def run_preprocessing():
+    """
+    Complete preprocessing pipeline for embedding-based models.
+    
+    Returns all necessary data for training:
+    - Categorical features (pain surveys + time_position) for embeddings
+    - Continuous features (joints + prosthetics + time features)
+    - Column metadata for building sequences
+    """
+    print("\n" + "="*70)
+    print("RUNNING COMPLETE PREPROCESSING PIPELINE")
+    print("="*70)
+    
+    # Load data
     df = pd.read_csv("pirate_pain_train.csv")
     df_test = pd.read_csv("pirate_pain_test.csv")
     df = df.drop(columns=['joint_30'])
     df_test = df_test.drop(columns=['joint_30'])
     
-    # Target
+    # Load target
     target = pd.read_csv("pirate_pain_train_labels.csv")
-    target.head()
-
+    
+    # Add time-based features (November 12 clue implementation)
+    df, df_test = add_time_features(df, df_test)
+    
+    # Add prosthetics feature
     df, df_test = add_prosthetics_feature(df, df_test)
+    
+    # Scale joint columns
     df = scale_joint_columns(df)
-    df_test = scale_joint_columns(df_test)
+    df_test = scale_joint_columns(df_test, use_existing_scaler=True)
+    
+    # Prepare data for embeddings (ensures categorical columns are int64)
+    df, df_test, categorical_cols, continuous_cols = prepare_data_with_embeddings(df, df_test)
+    
+    # Apply target weighting
     target = apply_target_weighting(target)
+    
+    # Train/val split
     train_df, val_df, train_target, val_target = train_val_split(df, target, val_ratio=0.2)
-
-    return train_df, val_df, train_target, val_target
+    
+    print("\n" + "="*70)
+    print("PREPROCESSING COMPLETE")
+    print("="*70)
+    print(f"Train samples: {len(train_df['sample_index'].unique())}")
+    print(f"Val samples: {len(val_df['sample_index'].unique())}")
+    print(f"Test samples: {len(df_test['sample_index'].unique())}")
+    print(f"\nCategorical columns ({len(categorical_cols)}): {categorical_cols}")
+    print(f"Continuous columns ({len(continuous_cols)}): {continuous_cols[:5]}... (+{len(continuous_cols)-5} more)")
+    print("="*70)
+    
+    return train_df, val_df, train_target, val_target, df_test, categorical_cols, continuous_cols
 
 
 def run_test_preprocessing():
+    """
+    DEPRECATED: Use run_preprocessing() instead, which returns test data.
+    
+    This function is kept for backward compatibility but is no longer needed.
+    The main run_preprocessing() now returns test data along with train/val.
+    """
+    print("WARNING: run_test_preprocessing() is deprecated.")
+    print("Use run_preprocessing() instead, which returns test data.")
+    
     df_test = pd.read_csv("pirate_pain_test.csv")
     df_test = df_test.drop(columns=['joint_30'])
     
+    # Add time-based features (November 12 clue implementation)
+    df_test, _ = add_time_features(df_test, df_test)
     df_test, _ = add_prosthetics_feature(df_test, df_test)
     df_test = scale_joint_columns(df_test, use_existing_scaler=True)
+    
+    # Prepare for embeddings
+    df_test, _, _, _ = prepare_data_with_embeddings(df_test, df_test)
 
     return df_test

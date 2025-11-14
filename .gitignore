@@ -4,3 +4,4 @@ configs/
 .venv/
 data/
 *.pyc
+.venv_torch/
