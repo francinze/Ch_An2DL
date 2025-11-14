@@ -486,3 +486,35 @@ def fit_with_embeddings(model, train_loader, val_loader, epochs, criterion, opti
         digits=4
     ))
     return model, training_history
+
+
+
+# =============================================================================
+# Dataset and Training Functions
+# =============================================================================
+
+class EmbeddingDataset(torch.utils.data.Dataset):
+    """
+    Custom dataset for models with separate categorical and continuous inputs.
+    
+    Used with CNNWithEmbeddings model that requires:
+    - categorical_input: pain survey values (integers 0-4) for embedding lookup
+    - continuous_input: normalized joint sensors + prosthetics features
+    """
+    
+    def __init__(self, categorical, continuous, labels):
+        """
+        Args:
+            categorical: numpy array of shape (N, seq_length, num_pain_surveys)
+            continuous: numpy array of shape (N, seq_length, num_continuous_features)
+            labels: numpy array of shape (N,)
+        """
+        self.categorical = torch.from_numpy(categorical).long()
+        self.continuous = torch.from_numpy(continuous).float()
+        self.labels = torch.from_numpy(labels).long()
+    
+    def __len__(self):
+        return len(self.labels)
+    
+    def __getitem__(self, idx):
+        return self.categorical[idx], self.continuous[idx], self.labels[idx]
