@@ -63,7 +63,7 @@ class TCN(nn.Module):
     Embeddings are concatenated with continuous features before TCN.
     """
     def __init__(self, num_continuous_features, num_classes=3, num_pain_surveys=4, 
-                 num_pain_levels=5, embedding_dim=3, **kwargs):
+                 num_pain_levels=3, embedding_dim=3, **kwargs):
         super().__init__()
         
         self.num_pain_surveys = num_pain_surveys

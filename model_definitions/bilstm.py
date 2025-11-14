@@ -16,7 +16,7 @@ class BiLSTM(nn.Module):
         num_continuous_features,
         num_classes=3,
         num_pain_surveys=4,
-        num_pain_levels=5,
+        num_pain_levels=3,
         embedding_dim=3,
         hidden_size=128,
         num_layers=2,

@@ -15,7 +15,7 @@ class CNN1DClassifier(nn.Module):
             num_continuous_features,
             num_classes=3,
             num_pain_surveys=4,
-            num_pain_levels=5,
+            num_pain_levels=3,
             embedding_dim=3,
             num_filters=[64, 128, 256],
             kernel_sizes=[5, 5, 3],

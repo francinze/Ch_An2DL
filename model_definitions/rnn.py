@@ -17,7 +17,7 @@ class RecurrentClassifier(nn.Module):
             num_layers,
             num_classes=3,
             num_pain_surveys=4,
-            num_pain_levels=5,
+            num_pain_levels=3,
             embedding_dim=3,
             rnn_type='GRU',
             bidirectional=False,
