@@ -1,8 +1,17 @@
+## CNN_BD
+CNN_BD Best model restored from epoch 87 with val_f1 0.9525
+### Hyperparameters
+WINDOW_SIZE = 300
+STRIDE = 150
+BATCH_SIZE = 64
+lr=5e-4,           # Learning rate
+    weight_decay=1e-4 
+    num_classes=3, hidden_size=256, dropout=0.3, bidirectional=True, l1=0, l2=0
 
-======================================================================
-Training CNN1DClassifier...
-======================================================================
-Training 1500 epochs...
+
+
+## CNN1DClassifier
+### Epochs
 Epoch   1/1500 | Train: Loss=0.9348, F1 Score=0.2405 | Val: Loss=1.1008, F1 Score=0.0152
 Epoch  50/1500 | Train: Loss=0.0245, F1 Score=0.9703 | Val: Loss=0.9175, F1 Score=0.8602
 Epoch 100/1500 | Train: Loss=0.0163, F1 Score=0.9764 | Val: Loss=1.2109, F1 Score=0.9303
@@ -11,17 +20,13 @@ Epoch 200/1500 | Train: Loss=0.0087, F1 Score=0.9922 | Val: Loss=1.5114, F1 Scor
 Early stopping triggered after 230 epochs.
 Best model restored from epoch 180 with val_f1 0.9522
 
-======================================================================
-📊 TRAINING RESULTS:
-======================================================================
+### Results
   Initial val F1: 0.0152
   Final val F1:   0.9212
   Best val F1:    0.9522
   Improvement:    +0.9371
 
-======================================================================
-📈 CLASSIFICATION REPORT:
-======================================================================
+### Classification Report
               precision    recall  f1-score   support
 
      no_pain     0.9490    0.9894    0.9688        94
@@ -32,7 +37,7 @@ Best model restored from epoch 180 with val_f1 0.9522
    macro avg     0.9460    0.8725    0.9037       132
 weighted avg     0.9536    0.9545    0.9522       132
 
-
+### Hyperparameters
 BATCH SIZE = 64
 num_filters=[64, 128, 256],
 kernel_sizes=[5, 5, 3],
@@ -42,18 +47,8 @@ L2 = 0
 weight Decay = 1e-4
 LR = 5e-4
 
-
-
-
-
-
-
-
-
-======================================================================
-Training CNNGRUClassifier...
-======================================================================
-Training 1500 epochs...
+## CNNGRUClassifier
+### Epochs
 Epoch   1/1500 | Train: Loss=1.0284, F1 Score=0.3011 | Val: Loss=1.0951, F1 Score=0.0661
 Epoch  10/1500 | Train: Loss=0.7479, F1 Score=0.2521 | Val: Loss=1.1498, F1 Score=0.0470
 Epoch  20/1500 | Train: Loss=0.3183, F1 Score=0.5492 | Val: Loss=0.8620, F1 Score=0.1976
@@ -76,17 +71,13 @@ Epoch 180/1500 | Train: Loss=0.0262, F1 Score=0.9765 | Val: Loss=1.4567, F1 Scor
 Early stopping triggered after 181 epochs.
 Best model restored from epoch 131 with val_f1 0.9310
 
-======================================================================
-📊 TRAINING RESULTS:
-======================================================================
+### Results
   Initial val F1: 0.0661
   Final val F1:   0.8591
   Best val F1:    0.9310
   Improvement:    +0.8648
 
-======================================================================
-📈 CLASSIFICATION REPORT:
-======================================================================
+### Classification Report
               precision    recall  f1-score   support
 
      no_pain     0.9588    0.9894    0.9738        94
@@ -97,6 +88,7 @@ Best model restored from epoch 131 with val_f1 0.9310
    macro avg     0.8607    0.8341    0.8461       132
 weighted avg     0.9318    0.9318    0.9310       132
 
+### Hyperparameters
 BATCH SIZE = 64
 num_filters=[64, 128, 256],
 kernel_sizes=[5, 5, 3],
