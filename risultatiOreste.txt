@@ -1,0 +1,30 @@
+CNN W=9 S=3
+Batch Size:     64
+  Learning Rate:  1e-03
+  Dropout Rate:   0.4
+  L1 Lambda:      0e+00
+  L2 Lambda:      0e+00
+  Best Val F1:    0.9267
+  Final Val Loss: 1.1442
+  Epochs Trained: 185
+
+
+CNN_BD W=9 S=3
+Batch Size:     32
+  Learning Rate:  5e-04
+  Dropout Rate:   0.4
+  L1 Lambda:      0e+00
+  L2 Lambda:      0e+00
+  Best Val F1:    0.9266
+  Final Val Loss: 0.6374
+  Epochs Trained: 127
+
+CNN_BD W=160 S=80
+ Batch Size:     32
+  Learning Rate:  5e-04
+  Dropout Rate:   0.4
+  L1 Lambda:      0e+00
+  L2 Lambda:      0e+00
+  Best Val F1:    0.9595
+  Final Val Loss: 1.4536
+  Epochs Trained: 281
