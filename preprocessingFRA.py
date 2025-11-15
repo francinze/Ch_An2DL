@@ -47,7 +47,7 @@ df = pd.read_csv("pirate_pain_train.csv")
 df_test = pd.read_csv("pirate_pain_test.csv")
 df = df.drop(columns=['joint_30'])
 df_test = df_test.drop(columns=['joint_30'])
-df_test = df_test.drop(columns=['joint_11'])
+df = df_test.drop(columns=['joint_11'])
 df_test = df_test.drop(columns=['joint_11'])
 
 print("Training data shape:", df.shape)
