@@ -29,7 +29,7 @@ CNN_BD W=160 S=80
   Final Val Loss: 1.4536
   Epochs Trained: 281
 
-CNN_BD W=20 S=5 e senza colonna 02
+CNN_BD W=20 S=5 e senza colonna 02     bastmodel 1820
  Batch Size:     32
   Learning Rate:  5e-04
   Dropout Rate:   0.4
