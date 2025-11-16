@@ -49,6 +49,8 @@ df = df.drop(columns=['joint_30'])
 df_test = df_test.drop(columns=['joint_30'])
 df = df_test.drop(columns=['joint_11'])
 df_test = df_test.drop(columns=['joint_11'])
+df = df.drop(columns=['time'],inplace=True)
+df_test = df_test.drop(columns=['time'],inplace=True)
 
 print("Training data shape:", df.shape)
 
@@ -267,6 +269,8 @@ def run_preprocessing():
     df_test = df_test.drop(columns=['joint_30'])
     df = df.drop(columns=['joint_11'])
     df_test = df_test.drop(columns=['joint_11'])
+    df = df.drop(columns=['time'],inplace=True)
+    df_test = df_test.drop(columns=['time'],inplace=True)
     
     # Target
     target = pd.read_csv("pirate_pain_train_labels.csv")
