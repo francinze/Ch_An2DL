@@ -45,10 +45,8 @@ df = pd.read_csv("pirate_pain_train.csv")
 df_test = pd.read_csv("pirate_pain_test.csv")
 df = df.drop(columns=['joint_30'])
 df_test = df_test.drop(columns=['joint_30'])
-df = df_test.drop(columns=['joint_11'])
-df_test = df_test.drop(columns=['joint_11'])
-df = df.drop(columns=['time'])
-df_test = df_test.drop(columns=['time'])
+# df = df.drop(columns=['time'])
+# df_test = df_test.drop(columns=['time'])
 
 print("Training data shape:", df.shape)
 
@@ -527,33 +525,19 @@ def run_preprocessing():
     # Load data
     df = pd.read_csv("pirate_pain_train.csv")
     df_test = pd.read_csv("pirate_pain_test.csv")
+    df = df.drop(columns=['joint_30'])
+    df_test = df_test.drop(columns=['joint_30'])
     
     # Load target
     target = pd.read_csv("pirate_pain_train_labels.csv")
     
-    # *************************************************************
-    # PASSO 1: ADD TIME FEATURES (RICHIEDE ANCORA LA COLONNA 'time')
-    # *************************************************************
+    # Add time-based features (November 12 clue implementation)
     df, df_test = add_time_features(df, df_test)
     
-    # *************************************************************
-    # PASSO 2: DROP COLONNE 
-    # *************************************************************
-    # Colonna 'time' (usata per le feature), 'joint_30' (zero varianza)
-    # e 'joint_11' (rimossa per allineare train/test o per altro motivo).
-    cols_to_drop = ['joint_30', 'joint_11', 'time']
-    
-    # Correzione del probabile errore di battitura nella riga che seguiva
-    # la rimozione di joint_30. Assumo l'intento di eliminare joint_11 da entrambi:
-    df = df.drop(columns=[col for col in cols_to_drop if col in df.columns])
-    df_test = df_test.drop(columns=[col for col in cols_to_drop if col in df_test.columns])
-    
-    # Add prosthetics feature (usa n_legs, n_hands, n_eyes)
+    # Add prosthetics feature
     df, df_test = add_prosthetics_feature(df, df_test)
     
     # Scale joint columns
-    # Qui uso df_test = scale_joint_columns(df_test, use_existing_scaler=True)
-    # Questa è la pratica corretta per evitare data leakage
     df = scale_joint_columns(df)
     df_test = scale_joint_columns(df_test, use_existing_scaler=True)
     
@@ -591,8 +575,7 @@ def run_test_preprocessing():
     
     df_test = pd.read_csv("pirate_pain_test.csv")
     df_test = df_test.drop(columns=['joint_30'])
-    df_test = df_test.drop(columns=['joint_11'])
-    df_test = df_test.drop(columns=['time'])
+    # df_test = df_test.drop(columns=['time'])
     
     # Add time-based features (November 12 clue implementation)
     df_test, _ = add_time_features(df_test, df_test)
