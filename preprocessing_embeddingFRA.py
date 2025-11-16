@@ -365,10 +365,10 @@ def prepare_data_with_embeddings(df, df_test):
     categorical_cols = pain_survey_cols + time_categorical_cols
     
     # Joint columns (continuous)
-    #joint_cols = ["joint_" + str(i).zfill(2) for i in range(30)]
+    joint_cols = ["joint_" + str(i).zfill(2) for i in range(30)]
 
     # CORREZIONE APPLICATA QUI: Filtra solo le colonne 'joint_' effettivamente presenti
-    joint_cols = [col for col in df.columns if col.startswith('joint_')]
+    #joint_cols = [col for col in df.columns if col.startswith('joint_')]
     
     # Time continuous columns (normalized + cyclical)
     time_continuous_cols = ['time_normalized', 'time_sin', 'time_cos']
@@ -422,11 +422,11 @@ def build_sequences_with_embeddings(df, target, window=200, stride=200,
     
     if continuous_cols is None:
         # Joints + has_prosthetics
-        #joint_cols = ["joint_" + str(i).zfill(2) for i in range(30)]
-        #continuous_cols = joint_cols + ['has_prosthetics']
+        joint_cols = ["joint_" + str(i).zfill(2) for i in range(30)]
+        continuous_cols = joint_cols + ['has_prosthetics']
         # Logica di fallback aggiornata per essere robusta
-        joints_present = [col for col in df.columns if col.startswith('joint_')]
-        continuous_cols = joints_present + ['time_normalized', 'time_sin', 'time_cos', 'has_prosthetics']
+        #joints_present = [col for col in df.columns if col.startswith('joint_')]
+        #continuous_cols = joints_present + ['time_normalized', 'time_sin', 'time_cos', 'has_prosthetics']
     
     # Ensure window is divisible by stride
     assert window % stride == 0
