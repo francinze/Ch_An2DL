@@ -527,6 +527,8 @@ def run_preprocessing():
     df_test = pd.read_csv("pirate_pain_test.csv")
     df = df.drop(columns=['joint_30'])
     df_test = df_test.drop(columns=['joint_30'])
+    df = df.drop(columns=['joint_11'])
+    df_test = df_test.drop(columns=['joint_11'])
     
     # Load target
     target = pd.read_csv("pirate_pain_train_labels.csv")
@@ -575,6 +577,7 @@ def run_test_preprocessing():
     
     df_test = pd.read_csv("pirate_pain_test.csv")
     df_test = df_test.drop(columns=['joint_30'])
+    df_test = df_test.drop(columns=['joint_11'])
     # df_test = df_test.drop(columns=['time'])
     
     # Add time-based features (November 12 clue implementation)
