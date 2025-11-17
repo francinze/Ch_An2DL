@@ -49,6 +49,8 @@ df = df.drop(columns=['joint_30'])
 df_test = df_test.drop(columns=['joint_30'])
 df = df_test.drop(columns=['joint_11'])
 df_test = df_test.drop(columns=['joint_11'])
+df = df.drop(columns=['time'])
+df_test = df_test.drop(columns=['time'])
 
 print("Training data shape:", df.shape)
 
@@ -272,28 +274,35 @@ def build_test_sequences(df, window=200, stride=200):
 def run_preprocessing():
     df = pd.read_csv("pirate_pain_train.csv")
     df_test = pd.read_csv("pirate_pain_test.csv")
-    df = df.drop(columns=['joint_30', 'joint_11'])
-    df_test = df_test.drop(columns=['joint_30', 'joint_11'])
+    df = df.drop(columns=['joint_30'])
+    df_test = df_test.drop(columns=['joint_30'])
+    df = df.drop(columns=['joint_11'])
+    df_test = df_test.drop(columns=['joint_11'])
     
-    # Target
+    # Target (Caricato qui per completezza)
     target = pd.read_csv("pirate_pain_train_labels.csv")
-    target.head()
 
-
-    # Add time-based features (November 12 clue implementation)
-    df, df_test = add_time_features(df, df_test)
+    # *************************************************************
+    # PASSO 1: ADD TIME FEATURES (DEVE ESSERE FATTO PER PRIMO)
+    # *************************************************************
+    # Questo richiede che la colonna 'time' esista.
+    df, df_test = add_time_features(df, df_test) 
+    
+    # *************************************************************
+    # PASSO 2: DROP COLONNE 
+    # *************************************************************
+    # Ora puoi rimuovere 'joint_30' (zero varianza), 'joint_11', e 'time' (sostituita dalle nuove feature).
+    # Uso un unico drop per pulizia e leggibilità.
+    cols_to_drop = ['joint_30', 'joint_11', 'time']
+    df = df.drop(columns=[col for col in cols_to_drop if col in df.columns])
+    df_test = df_test.drop(columns=[col for col in cols_to_drop if col in df_test.columns])
+    
+    # Add prosthetics feature (usa n_legs, n_hands, n_eyes)
     df, df_test = add_prosthetics_feature(df, df_test)
-    
-    # ⭐ DROP TIME COLUMN (after extracting time features, before scaling)
-    df.drop(columns='time', inplace=True, errors='ignore')
-    df_test.drop(columns='time', inplace=True, errors='ignore')
-    print("✅ Dropped 'time' column from train and test sets")
-    
-    # Fit scaler on train, then apply to test
-    df = scale_joint_columns(df, use_existing_scaler=False)
-    df_test = scale_joint_columns(df_test, use_existing_scaler=True)
-    
+    df = scale_joint_columns(df)
+    df_test = scale_joint_columns(df_test)
     target = apply_target_weighting(target)
+    
     train_df, val_df, train_target, val_target = train_val_split(df, target, val_ratio=0.2)
 
     return train_df, val_df, train_target, val_target, df_test
