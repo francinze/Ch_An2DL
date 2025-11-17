@@ -265,9 +265,19 @@ def run_preprocessing():
     # Add time-based features (November 12 clue implementation)
     df, df_test = add_time_features(df, df_test)
     df, df_test = add_prosthetics_feature(df, df_test)
-    df = scale_joint_columns(df)
-    df_test = scale_joint_columns(df_test)
+    
+    # ⭐ DROP TIME COLUMN (after extracting time features)
+    df.drop(columns='time', inplace=True, errors='ignore')
+    df_test.drop(columns='time', inplace=True, errors='ignore')
+    print("✅ Dropped 'time' column from train and test sets")
+    
+    df = scale_joint_columns(df, use_existing_scaler=False)
+    df_test = scale_joint_columns(df_test, use_existing_scaler=True)
     target = apply_target_weighting(target)
     train_df, val_df, train_target, val_target = train_val_split(df, target, val_ratio=0.2)
+    
+    # ⭐ DROP TIME COLUMN from validation set too (if still present)
+    train_df.drop(columns='time', inplace=True, errors='ignore')
+    val_df.drop(columns='time', inplace=True, errors='ignore')
 
     return train_df, val_df, train_target, val_target, df_test

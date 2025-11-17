@@ -99,15 +99,18 @@ def add_prosthetics_feature(df, df_test):
 def scale_joint_columns(df, use_existing_scaler=None):
     print("\nApplying Min-Max normalization to joint columns...")
     print("=" * 60)
-    # List of joint columns to normalize
-    all_joint_cols = ["joint_" + str(i).zfill(2) for i in range(30)]
-
-    # Filter to include only existing joint columns in the DataFrame
-    joint_cols = [col for col in all_joint_cols if col in df.columns]
-
+    # Full list of expected joint columns (joint_00 .. joint_29)
+    expected_joint_cols = ["joint_" + str(i).zfill(2) for i in range(30)]
+    
+    # Keep only columns that actually exist in the dataframe (handles joint_11, joint_30 dropped)
+    joint_cols = [c for c in expected_joint_cols if c in df.columns]
+    missing = [c for c in expected_joint_cols if c not in df.columns]
+    
+    if missing:
+        print(f"ℹ️  Skipping missing columns: {missing}")
+    
     if not joint_cols:
-        print("No relevant joint columns found in the DataFrame to scale. Skipping scaling.")
-        return df
+        raise ValueError("No joint columns found in dataframe to scale.")
 
     for col in joint_cols:
         df[col] = df[col].astype(np.float32)
@@ -121,20 +124,26 @@ def scale_joint_columns(df, use_existing_scaler=None):
         # Apply Min-Max normalization to the joint columns
         df[joint_cols] = minmax_scaler.fit_transform(df[joint_cols])
 
-
-        # Save the scaler that was fitted on training data
-        with open('minmax_scaler.pkl', 'wb') as f:
-            pickle.dump(minmax_scaler, f)
+        # Save both the scaler and the column list it was fitted on
+        with open('minmax_scaler_FRA.pkl', 'wb') as f:
+            pickle.dump({'scaler': minmax_scaler, 'cols': joint_cols}, f)
+        
+        print("✅ Scaler fitted and saved successfully!")
     else:
-        # Load the existing scaler
-        minmax_scaler = pickle.load(open('minmax_scaler.pkl', 'rb'))
-
+        # Load the existing scaler and the columns it was fitted on
+        saved = pickle.load(open('minmax_scaler_FRA.pkl', 'rb'))
+        minmax_scaler = saved['scaler']
+        fitted_cols = saved['cols']
+        
         # Apply the existing scaler to the joint columns
         df[joint_cols] = minmax_scaler.transform(df[joint_cols])
-
-    print("✅ Scaler saved successfully!")
-    print(f"Scaler learned from training data - Min: {minmax_scaler.data_min_[:5]}")
-    print(f"Scaler learned from training data - Max: {minmax_scaler.data_max_[:5]}")
+        
+        print("✅ Scaler applied successfully!")
+    
+    print(f"   Scaled {len(joint_cols)} columns: {joint_cols[:5]}...")
+    print(f"   Scaler range - Min: {minmax_scaler.data_min_[:5]}")
+    print(f"   Scaler range - Max: {minmax_scaler.data_max_[:5]}")
+    
     return df
 
 def apply_target_weighting(target):
@@ -263,10 +272,8 @@ def build_test_sequences(df, window=200, stride=200):
 def run_preprocessing():
     df = pd.read_csv("pirate_pain_train.csv")
     df_test = pd.read_csv("pirate_pain_test.csv")
-    df = df.drop(columns=['joint_30'])
-    df_test = df_test.drop(columns=['joint_30'])
-    df = df.drop(columns=['joint_11'])
-    df_test = df_test.drop(columns=['joint_11'])
+    df = df.drop(columns=['joint_30', 'joint_11'])
+    df_test = df_test.drop(columns=['joint_30', 'joint_11'])
     
     # Target
     target = pd.read_csv("pirate_pain_train_labels.csv")
@@ -276,8 +283,16 @@ def run_preprocessing():
     # Add time-based features (November 12 clue implementation)
     df, df_test = add_time_features(df, df_test)
     df, df_test = add_prosthetics_feature(df, df_test)
-    df = scale_joint_columns(df)
-    df_test = scale_joint_columns(df_test)
+    
+    # ⭐ DROP TIME COLUMN (after extracting time features, before scaling)
+    df.drop(columns='time', inplace=True, errors='ignore')
+    df_test.drop(columns='time', inplace=True, errors='ignore')
+    print("✅ Dropped 'time' column from train and test sets")
+    
+    # Fit scaler on train, then apply to test
+    df = scale_joint_columns(df, use_existing_scaler=False)
+    df_test = scale_joint_columns(df_test, use_existing_scaler=True)
+    
     target = apply_target_weighting(target)
     train_df, val_df, train_target, val_target = train_val_split(df, target, val_ratio=0.2)
 
