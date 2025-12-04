@@ -5,3 +5,5 @@ configs/
 */data/
 *.pyc
 .venv_torch/
+data/
+models/
