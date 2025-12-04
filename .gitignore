@@ -7,3 +7,10 @@ configs/
 .venv_torch/
 data/
 models/
+.idea/Ch1_An2DL.iml
+.idea/inspectionProfiles/profiles_settings.xml
+.idea/misc.xml
+.idea/vcs.xml
+.idea/workspace.xml
+/test_data
+/train_data
