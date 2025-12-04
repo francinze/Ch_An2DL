@@ -1,7 +1,7 @@
 *.csv
-models/
+*/models/
 configs/
 .venv/
-data/
+*/data/
 *.pyc
 .venv_torch/
