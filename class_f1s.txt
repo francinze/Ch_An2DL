@@ -1,0 +1,4 @@
+Luminal B = 0.1834
+Luminal A = 0.1167
+Triple negative = 0.0246
+HER2(+) = 0.1057
