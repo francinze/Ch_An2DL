@@ -179,10 +179,6 @@ def augment_images(
     print("  - Synchronized geometric transforms only (flip operations)")
     print("  - No color/brightness changes (masks are binary/grayscale)")
 
-    print("\n" + "="*80)
-    print("Augmentation pipeline ready!")
-    print("="*80)
-
     # IMPORTANT: We apply AUTOMATIC augmentation to images
     # and SYNCHRONIZED GEOMETRIC transforms to masks
     print("\n" + "="*80)

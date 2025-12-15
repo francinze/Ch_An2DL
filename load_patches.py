@@ -9,13 +9,148 @@ import json
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Subset
 
+# ===== MODULE-LEVEL DATASET CLASSES (for Windows multiprocessing compatibility) =====
+
+class MultiFilePatchDataset(Dataset):
+    """Dataset that loads patches from multiple batch files with caching"""
+    
+    def __init__(self, metadata: dict[str, Any]):
+        self.batch_files: list[str] = metadata['batch_files']
+        self.total_patches = metadata['total_patches']
+        
+        # Cache for loaded batches (key: batch_idx, value: batch_data)
+        self._cache: dict[int, dict[str, Any]] = {}
+        
+        # Load all batches to build index (loads only metadata, not actual tensors)
+        self.batch_sizes: list[int] = []
+        self.cumulative_sizes: list[int] = [0]
+        
+        print(f"Loading batch metadata from {len(self.batch_files)} files...")
+        for batch_file in self.batch_files:
+            batch_data = torch.load(batch_file, weights_only=False)
+            batch_size = len(batch_data['patches'])
+            self.batch_sizes.append(batch_size)
+            self.cumulative_sizes.append(self.cumulative_sizes[-1] + batch_size)
+            
+            # CRITICAL: Pre-load all batches into cache (only ~22K patches total, manageable)
+            # This avoids repeated torch.load() calls which are extremely slow
+            self._cache[len(self.batch_sizes) - 1] = batch_data
+        
+        print(f"Dataset ready with {self.total_patches} patches (all batches cached in RAM)")
+    
+    def __len__(self):
+        return self.total_patches
+    
+    def __getitem__(self, idx: int):
+        # Find which batch file contains this index
+        batch_idx: int = int(np.searchsorted(self.cumulative_sizes[1:], idx, side='right'))
+        local_idx = idx - self.cumulative_sizes[batch_idx]
+        
+        # Use cached batch data (no disk I/O!)
+        batch_data = self._cache[batch_idx]
+        
+        return batch_data['patches'][local_idx], batch_data['labels'][local_idx]
+
+
+class TestPatchDataset(Dataset):
+    """Memory-efficient test dataset that extracts patches on-the-fly"""
+    
+    def __init__(self, test_img_dir: str, patch_size: int, patch_stride: int):
+        self.test_img_dir = test_img_dir
+        self.patch_size = patch_size
+        self.stride = patch_stride
+        
+        # Get image files
+        self.image_files = sorted([f for f in os.listdir(test_img_dir) if f.startswith('img_')])
+        
+        # Pre-compute patch counts and mapping
+        self.patch_counts: list[int] = []
+        self.cumulative_patches: list[int] = [0]
+        self.patch_to_image: list[int] = []
+        
+        print(f"Computing patch counts for {len(self.image_files)} test images...")
+        for i, img_name in enumerate(self.image_files):
+            if i % 100 == 0 and i > 0:
+                print(f"  Processed {i}/{len(self.image_files)} images...")
+            
+            img_path = os.path.join(test_img_dir, img_name)
+            img = Image.open(img_path)
+            h, w = img.size[1], img.size[0]
+            
+            # Calculate patches
+            n_patches_h = max(1, (h - patch_size) // self.stride + 1)
+            n_patches_w = max(1, (w - patch_size) // self.stride + 1)
+            n_patches = n_patches_h * n_patches_w
+            
+            if h < patch_size or w < patch_size:
+                n_patches = 1
+            
+            self.patch_counts.append(n_patches)
+            self.cumulative_patches.append(self.cumulative_patches[-1] + n_patches)
+            
+            # Track which image each patch belongs to
+            for _ in range(n_patches):
+                self.patch_to_image.append(i)
+        
+        self.total_patches = self.cumulative_patches[-1]
+        print(f"Total test patches: {self.total_patches}")
+    
+    def __len__(self):
+        return self.total_patches
+    
+    def _extract_patch(self, image: np.ndarray, patch_idx: int, img_h: int, img_w: int):
+        """Extract a specific patch from an image"""
+        _ = max(1, (img_h - self.patch_size) // self.stride + 1)
+        n_patches_w = max(1, (img_w - self.patch_size) // self.stride + 1)
+        
+        row_idx = patch_idx // n_patches_w
+        col_idx = patch_idx % n_patches_w
+        
+        start_h = min(row_idx * self.stride, img_h - self.patch_size)
+        start_w = min(col_idx * self.stride, img_w - self.patch_size)
+        
+        patch: np.ndarray = image[start_h:start_h+self.patch_size, start_w:start_w+self.patch_size, :]
+        return patch
+    
+    def __getitem__(self, idx: int):
+        # Find image for this patch
+        img_idx = np.searchsorted(self.cumulative_patches[1:], idx, side='right')
+        patch_idx = idx - self.cumulative_patches[img_idx]
+        img_name = self.image_files[img_idx]
+        
+        img_path = os.path.join(self.test_img_dir, img_name)
+        
+        # Load image
+        img = Image.open(img_path).convert('RGB')
+        img_array = np.array(img)
+        
+        # Extract patch
+        h, w, _ = img_array.shape
+        
+        if h < self.patch_size or w < self.patch_size:
+            pad_h = max(0, self.patch_size - h)
+            pad_w = max(0, self.patch_size - w)
+            img_array = np.pad(img_array, ((0, pad_h), (0, pad_w), (0, 0)), mode='reflect')
+            patch = img_array[:self.patch_size, :self.patch_size, :]
+        else:
+            patch: np.ndarray = self._extract_patch(img_array, patch_idx, h, w)
+        
+        final_img: np.ndarray = patch
+    
+        # Convert to tensor
+        img_tensor = torch.from_numpy(final_img).permute(2, 0, 1).float() / 255.0
+        
+        return img_tensor
+
+# ===== END OF MODULE-LEVEL CLASSES =====
+
 def load_patches(
     train_img_dir: str, test_img_dir: str, train_labels: pd.DataFrame, path_prefix: str, 
     batch_size: int, patch_size: int, patch_stride: int, images_per_batch: int
 ) -> tuple[DataLoader[Any], DataLoader[Any]]:
     if torch.cuda.is_available():
         num_workers = 2 * torch.cuda.device_count()  # 2 workers per GPU = 4 total for T4 x2
-        pin_memory = True  # CRITICAL: Enables async CPU-to-GPU transfer while GPU computes
+        pin_memory = True
         persistent_workers = True  # Keeps workers alive between epochs (faster)
         print(f"GPU detected: {torch.cuda.device_count()} GPU(s) - using {num_workers} workers")
     else:
@@ -45,6 +180,8 @@ def load_patches(
     # Metadata file to track all batch files
     metadata_file = os.path.join(patches_dir, f"metadata_ps{patch_size}_stride{patch_stride}.json")
 
+    # Check if cache exists and is valid
+    cache_valid = False
     if os.path.exists(metadata_file):
         print(f"✓ Found pre-extracted patches!")
         print(f"  Loading metadata from: {metadata_file}")
@@ -52,10 +189,18 @@ def load_patches(
         with open(metadata_file, 'r') as f:
             metadata = json.load(f)
         
-        print(f"✓ Found {metadata['num_batches']} batch files with {metadata['total_patches']} total patches")
-        print(f"✓ Found {metadata['num_batches']} batch files with {metadata['total_patches']} total patches")
+        # Validate cache: check if it has patches and batch files exist
+        if metadata.get('total_patches', 0) > 0 and metadata.get('num_batches', 0) > 0:
+            # Verify at least one batch file exists
+            if metadata.get('batch_files') and os.path.exists(metadata['batch_files'][0]):
+                cache_valid = True
+                print(f"✓ Found {metadata['num_batches']} batch files with {metadata['total_patches']} total patches")
+            else:
+                print(f"⚠ Cache metadata exists but batch files missing. Re-extracting...")
+        else:
+            print(f"⚠ Cache metadata exists but has 0 patches. Re-extracting...")
         
-    else:
+    if not cache_valid:
         print(f"⚠ No pre-extracted patches found. Extracting now...")
         print(f"  Strategy: Save each batch to separate file (no huge concatenation!)")
         
@@ -127,6 +272,14 @@ def load_patches(
             
             img_path = os.path.join(train_img_dir, img_name)
             
+            # Check if the file exists with '_crop_' suffix (from focus_filter)
+            if not os.path.exists(img_path):
+                name_parts = os.path.splitext(img_name)
+                img_name_crop = name_parts[0] + '_crop_' + name_parts[1]
+                img_path_crop = os.path.join(train_img_dir, img_name_crop)
+                if os.path.exists(img_path_crop):
+                    img_path = img_path_crop
+            
             if os.path.exists(img_path):
                 patches = extract_patches_from_image(img_path, patch_size, patch_stride)
                 batch_patches.extend(patches)
@@ -174,55 +327,7 @@ def load_patches(
     print("Creating multi-file dataset...")
     print(f"Total patches: {metadata['total_patches']}")
 
-    # Custom Dataset that loads from multiple batch files
-    class MultiFilePatchDataset(Dataset):
-        """Dataset that loads patches from multiple batch files with caching"""
-        
-        def __init__(self, metadata: dict[str, Any]):
-            self.batch_files: list[str] = metadata['batch_files']
-            self.total_patches = metadata['total_patches']
-            
-            # Cache for loaded batches (key: batch_idx, value: batch_data)
-            self._cache: dict[int, dict[str, Any]] = {}
-            
-            # Load all batches to build index (loads only metadata, not actual tensors)
-            self.batch_sizes: list[int] = []
-            self.cumulative_sizes: list[int] = [0]
-            
-            print(f"Loading batch metadata from {len(self.batch_files)} files...")
-            for batch_file in self.batch_files:
-                batch_data = torch.load(batch_file)
-                batch_size = len(batch_data['patches'])
-                self.batch_sizes.append(batch_size)
-                self.cumulative_sizes.append(self.cumulative_sizes[-1] + batch_size)
-                
-                # CRITICAL: Pre-load all batches into cache (only ~22K patches total, manageable)
-                # This avoids repeated torch.load() calls which are extremely slow
-                self._cache[len(self.batch_sizes) - 1] = batch_data
-            
-            print(f"Dataset ready with {self.total_patches} patches (all batches cached in RAM)")
-        
-        def __len__(self):
-            return self.total_patches
-        
-        def __getitem__(self, idx: int):
-            # Find which batch file contains this index
-            batch_idx: int = int(np.searchsorted(self.cumulative_sizes[1:], idx, side='right'))
-            local_idx = idx - self.cumulative_sizes[batch_idx]
-            
-            # Use cached batch data (no disk I/O!)
-            batch_data = self._cache[batch_idx]
-            
-            return batch_data['patches'][local_idx], batch_data['labels'][local_idx]
-
-    with open(metadata_file, 'r') as f:
-        metadata = json.load(f)
-
-    print(f"\n{'='*80}")
-    print("Creating multi-file dataset...")
-    print(f"Total patches: {metadata['total_patches']}")
-
-    # Create dataset
+    # Create dataset using module-level class
     full_dataset = MultiFilePatchDataset(metadata)
 
     # ===== CREATE TRAIN/VAL SPLIT =====
@@ -281,100 +386,10 @@ def load_patches(
     print(f"Val batches: {len(val_loader)}")
     print("="*80)
 
-    # Memory-efficient test dataset
-    class TestPatchDataset(Dataset):
-        """Memory-efficient test dataset that extracts patches on-the-fly"""
-        
-        def __init__(self):
-            self.patch_size = patch_size
-            
-            # Get image files
-            self.image_files = sorted([f for f in os.listdir(test_img_dir) if f.startswith('img_')])
-            
-            # Pre-compute patch counts and mapping
-            self.patch_counts: list[int] = []
-            self.cumulative_patches: list[int] = [0]
-            self.patch_to_image: list[int] = []
-            self.stride = patch_stride
-            
-            print(f"Computing patch counts for {len(self.image_files)} test images...")
-            for i, img_name in enumerate(self.image_files):
-                if i % 100 == 0 and i > 0:
-                    print(f"  Processed {i}/{len(self.image_files)} images...")
-                
-                img_path = os.path.join(test_img_dir, img_name)
-                img = Image.open(img_path)
-                h, w = img.size[1], img.size[0]
-                
-                # Calculate patches
-                n_patches_h = max(1, (h - patch_size) // self.stride + 1)
-                n_patches_w = max(1, (w - patch_size) // self.stride + 1)
-                n_patches = n_patches_h * n_patches_w
-                
-                if h < patch_size or w < patch_size:
-                    n_patches = 1
-                
-                self.patch_counts.append(n_patches)
-                self.cumulative_patches.append(self.cumulative_patches[-1] + n_patches)
-                
-                # Track which image each patch belongs to
-                for _ in range(n_patches):
-                    self.patch_to_image.append(i)
-            
-            self.total_patches = self.cumulative_patches[-1]
-            print(f"Total test patches: {self.total_patches}")
-        
-        def __len__(self):
-            return self.total_patches
-        
-        def _extract_patch(self, image: np.ndarray, patch_idx: int, img_h: int, img_w: int):
-            """Extract a specific patch from an image"""
-            n_patches_h = max(1, (img_h - self.patch_size) // self.stride + 1)
-            n_patches_w = max(1, (img_w - self.patch_size) // self.stride + 1)
-            
-            row_idx = patch_idx // n_patches_w
-            col_idx = patch_idx % n_patches_w
-            
-            start_h = min(row_idx * self.stride, img_h - self.patch_size)
-            start_w = min(col_idx * self.stride, img_w - self.patch_size)
-            
-            patch: np.ndarray = image[start_h:start_h+self.patch_size, start_w:start_w+self.patch_size, :]
-            return patch
-        
-        def __getitem__(self, idx: int):
-            # Find image for this patch
-            img_idx = np.searchsorted(self.cumulative_patches[1:], idx, side='right')
-            patch_idx = idx - self.cumulative_patches[img_idx]
-            img_name = self.image_files[img_idx]
-            
-            img_path = os.path.join(test_img_dir, img_name)
-            
-            # Load image
-            img = Image.open(img_path).convert('RGB')
-            img_array = np.array(img)
-            
-            # Extract patch
-            h, w, c = img_array.shape
-            
-            if h < self.patch_size or w < self.patch_size:
-                pad_h = max(0, self.patch_size - h)
-                pad_w = max(0, self.patch_size - w)
-                img_array = np.pad(img_array, ((0, pad_h), (0, pad_w), (0, 0)), mode='reflect')
-                patch = img_array[:self.patch_size, :self.patch_size, :]
-            else:
-                patch: np.ndarray = self._extract_patch(img_array, patch_idx, h, w)
-            
-            final_img: np.ndarray = patch
-        
-            # Convert to tensor
-            img_tensor = torch.from_numpy(final_img).permute(2, 0, 1).float() / 255.0
-            
-            return img_tensor
-
     # Load test data
     print(f"Using PATCH-BASED processing for test data")
         
-    test_dataset = TestPatchDataset()
+    test_dataset = TestPatchDataset(test_img_dir, patch_size, patch_stride)
     test_filenames = test_dataset.image_files
 
     print(f"Test patches: {len(test_dataset)}")
