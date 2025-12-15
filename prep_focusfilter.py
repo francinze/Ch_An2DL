@@ -10,15 +10,6 @@ def focus_filter(train_img_dir: str, train_mask_dir: str, test_img_dir: str, tes
     Applica una mask di focus alle immagini di training e test.
     Le immagini mascherate vengono salvate in nuove cartelle.
     """
-
-    # Remove any previously masked&cropped images from the training set
-    train_labels = train_labels[~train_labels['sample_index'].str.contains('_crop_')].reset_index(drop=True)
-    for img_file in os.listdir(train_img_dir):
-        if '_crop_' in img_file:
-            os.remove(os.path.join(train_img_dir, img_file))
-    for mask_file in os.listdir(train_mask_dir):
-        if '_crop_' in mask_file:
-            os.remove(os.path.join(train_mask_dir, mask_file))
     
     def apply_mask(image: Image.Image, mask: Image.Image) -> Image.Image:
         """
@@ -47,62 +38,8 @@ def focus_filter(train_img_dir: str, train_mask_dir: str, test_img_dir: str, tes
 
         return Image.fromarray(masked_img_np)
 
-    # === VISUALIZZA A VIDEO ALCUNI ESEMPI ===
-    samples = sorted(os.listdir(train_img_dir))[:4]  # primi 4 esempi
-
-    _, axes = plt.subplots(len(samples), 2, figsize=(12, 2 * len(samples)))
-
-    for i, img_name in enumerate(samples):
-
-        # Carica immagine e mask corrispondente
-        img_path = os.path.join(train_img_dir, img_name)
-        mask_path = os.path.join(train_mask_dir, img_name.replace("img_", "mask_"))
-
-        image = Image.open(img_path).convert("RGB")
-        mask = Image.open(mask_path).convert("L")
-
-        # Applica la mask
-        masked_image = apply_mask(image, mask)
-
-        # --- Plot ---
-        axes[i, 0].imshow(image)
-        axes[i, 0].set_title("Original Image")
-        axes[i, 0].axis("off")
-
-        axes[i, 1].imshow(masked_image)
-        axes[i, 1].set_title("Masked Image")
-        axes[i, 1].axis("off")
-
-    plt.tight_layout()
-    plt.show()
-
-    # Apply masking to all training images and replace original files
-    train_img_files = sorted(os.listdir(train_img_dir))
-
-    for img_name in tqdm(train_img_files, desc="Processing training images"):
-        img_path = os.path.join(train_img_dir, img_name)
-        mask_path = os.path.join(train_mask_dir, img_name.replace("img_", "mask_"))
-        image = Image.open(img_path).convert("RGB")
-        mask = Image.open(mask_path).convert("L")
-
-        masked_image = apply_mask(image, mask)
-        masked_image.save(img_path)  # Overwrite original file
-    print("Training images masked and replaced.")
-
-    # Apply masking to all test images and replace original files
-    test_img_files = sorted(os.listdir(test_img_dir))
-    for img_name in tqdm(test_img_files, desc="Processing test images"):
-        img_path = os.path.join(test_img_dir, img_name)
-        mask_path = os.path.join(test_mask_dir, img_name.replace("img_", "mask_"))
-        image = Image.open(img_path).convert("RGB")
-        mask = Image.open(mask_path).convert("L")
-        masked_image = apply_mask(image, mask)
-        masked_image.save(img_path)  # Overwrite original file
-
-    print("Test images masked and replaced.")
-
-    # Crop masked images to the extent of information
-    # Now that we have applied the masks, we can crop the images to the bounding box of the non-zero regions in the masks.
+    # Define crop function before processing
+    # Now we can crop the images to the bounding box of the non-zero regions in the masks.
     def crop_to_mask(image: Image.Image) -> Image.Image:
         """
         Crop the image to the bounding box of the non-zero regions.
@@ -170,8 +107,8 @@ def focus_filter(train_img_dir: str, train_mask_dir: str, test_img_dir: str, tes
         cropped_image = crop_to_mask(masked_image)
 
         # --- Plot ---
-        axes[i, 0].imshow(masked_image)
-        axes[i, 0].set_title("Masked Image")
+        axes[i, 0].imshow(image)
+        axes[i, 0].set_title("Original Image")
         axes[i, 0].axis("off")
 
         axes[i, 1].imshow(mask, cmap="gray")
@@ -185,36 +122,37 @@ def focus_filter(train_img_dir: str, train_mask_dir: str, test_img_dir: str, tes
     plt.tight_layout()
     plt.show()
 
-    # Crop all images and save to same directories
-
+    # Process all images in a single pass: mask + crop + save
     # Process training images
-    for img_name in tqdm(os.listdir(train_img_dir), desc="Processing training images"):
+    train_img_files = sorted([f for f in os.listdir(train_img_dir)])
+    for img_name in tqdm(train_img_files, desc="Processing training images"):
         img_path = os.path.join(train_img_dir, img_name)
-
-        image = Image.open(img_path).convert("RGB")
-
-        cropped_image = crop_to_mask(image)
-
-        # Create new filename with '_crop_' before extension
-        name_parts = os.path.splitext(img_name)
-        new_img_name = name_parts[0] + '_crop_' + name_parts[1]
-        new_img_path = os.path.join(train_img_dir, new_img_name)
+        mask_path = os.path.join(train_mask_dir, img_name.replace("img_", "mask_"))
         
-        cropped_image.save(new_img_path)
-        os.remove(img_path)  # Remove old file
-    print("\nCropped training images saved.")
+        image = Image.open(img_path).convert("RGB")
+        mask = Image.open(mask_path).convert("L")
+        
+        # Apply mask and crop in one pass
+        masked_image = apply_mask(image, mask)
+        cropped_image = crop_to_mask(masked_image)
+        
+        cropped_image.save(img_path)
+    print("\nMasked and cropped training images saved.")
+    
     # Process test images
-    for img_name in tqdm(os.listdir(test_img_dir), desc="Processing test images"):
+    test_img_files = sorted([f for f in os.listdir(test_img_dir)])
+    for img_name in tqdm(test_img_files, desc="Processing test images"):
         img_path = os.path.join(test_img_dir, img_name)
-        image = Image.open(img_path).convert("RGB")
-
-        cropped_image = crop_to_mask(image)
-
-        # Create new filename with '_crop_' before extension
-        name_parts = os.path.splitext(img_name)
-        new_img_name = name_parts[0] + '_crop_' + name_parts[1]
-        new_img_path = os.path.join(test_img_dir, new_img_name)
+        mask_path = os.path.join(test_mask_dir, img_name.replace("img_", "mask_"))
         
-        cropped_image.save(new_img_path)
-        os.remove(img_path)  # Remove old file
-    print("\nCropped test images saved.")
+        image = Image.open(img_path).convert("RGB")
+        mask = Image.open(mask_path).convert("L")
+        
+        # Apply mask and crop in one pass
+        masked_image = apply_mask(image, mask)
+        cropped_image = crop_to_mask(masked_image)
+        
+        cropped_image.save(img_path)
+    print("\nMasked and cropped test images saved.")
+
+    return train_labels
