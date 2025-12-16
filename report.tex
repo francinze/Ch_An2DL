@@ -1,0 +1,165 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{lipsum}
+\usepackage{multicol}
+\usepackage{xcolor}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\newcolumntype{Y}{>{\centering\arraybackslash}X}
+\usepackage[left=2.00cm, right=2.00cm, top=2.00cm, bottom=2.00cm]{geometry}
+
+\title{AN2DL Reports Template}
+
+\begin{document}
+    
+    \begin{figure}[H]
+        \raggedright
+        \includegraphics[scale=0.5]{polimi.png} \hfill \includegraphics[scale=0.3]{airlab.jpeg}
+    \end{figure}
+    
+    \vspace{5mm}
+    
+    \begin{center}
+        % Select between First and Second
+        {\Large \textbf{AN2DL - Second Challenge Report}}\\
+        \vspace{2mm}
+        % Change with your Team Name
+        {\Large \textbf{Artificial Neural Napoli}}\\
+        \vspace{2mm}
+        % Team Members Information
+        {\large Francesco Mario Inzerillo,}
+        {\large Vittorio La Rosa,}
+        {\large Oreste Maria Greco,}
+        {\large Francesca Grasso}\\
+        \vspace{2mm}
+        % Codabench Nicknames
+        {francescoinzerillo,}
+        {vittoriolarosa,}
+        {orestemariagreco,}
+        {francescagrasso}\\
+        \vspace{2mm}
+        % Matriculation Numbers
+        {10708997,}
+        {10742318,}
+        {11098201,}
+        {11127543}\\
+        \vspace{5mm}
+        \today
+    \end{center}    
+    \vspace{5mm}
+    
+    \begin{multicols}{2}
+
+    \section{Introduction}
+    Breast cancer molecular subtype classification is crucial for determining appropriate treatment strategies and predicting patient outcomes. Traditional immunohistochemistry-based classification is time-consuming and subject to inter-observer variability, motivating automated deep learning approaches. This project addresses multi-class histopathology image classification across four subtypes: \textit{Luminal A}, \textit{Luminal B}, \textit{HER2(+)}, and \textit{Triple negative}.
+    
+    We employed pretrained vision transformer architectures with transfer learning to leverage ImageNet representations while adapting to the histopathology domain. Unlike standard CNNs, transformers excel at capturing long-range spatial dependencies through self-attention mechanisms, particularly valuable for analyzing tissue microarchitecture. Our approach combined comprehensive data preprocessing strategies—including patch-based processing (256×256 patches), AutoAugment for class balancing, and Mixup/CutMix for regularization—to address the challenges of limited training data (581 samples) and class imbalance. The best model achieved 64.1\% validation F1 score.
+        
+    \section{Problem Analysis} \label{problem}
+    The dataset consists of 692 histopathology images (minimum 1024×1024 pixels) with corresponding binary segmentation masks highlighting relevant tissue regions. Images exhibit substantial variability in size (ranging from 1024×1024 to over 2000×2000 pixels) and aspect ratio, requiring flexible preprocessing strategies. The masks, generated through expert annotation, delineate tumor tissue boundaries with high precision.
+    
+    Key challenges identified through exploratory data analysis:
+    \begin{enumerate}
+        \item \textbf{Data contamination}: Initial inspection revealed 111 samples containing visual artifacts and corrupted data, necessitating manual identification and removal to ensure training quality. This reduced the usable training set to 581 clean images.
+        \item \textbf{Class imbalance}: The four subtypes exhibit moderate imbalance, with Triple negative samples comprising the smallest proportion (approximately 15\% of the dataset). This imbalance risks biasing the model toward majority classes without careful augmentation.
+        \item \textbf{Spatial complexity}: Segmentation masks isolate relatively small, specific tissue regions within large images. Direct downsampling would lose critical cellular and tissue-level features, while processing full-resolution images exceeds typical GPU memory constraints, motivating patch-based approaches.
+    \end{enumerate}
+    
+    \section{Method} \label{Method}
+    \subsection{Data Preprocessing}
+    After removing 111 contaminated samples through manual inspection, we implemented a multi-stage preprocessing pipeline designed to address data scarcity while preserving histopathological detail:
+    \begin{itemize}
+        \item \textbf{AutoAugment}: Applied ImageNet-optimized augmentation policies including random rotations, color jittering, and elastic deformations to balance class distributions and increase training diversity. This particularly benefited the underrepresented Triple negative class.
+        \item \textbf{Patch extraction}: Extracted overlapping 256×256 patches with stride 64 from full-resolution images. This approach preserves fine-grained cellular features while managing GPU memory constraints and naturally increases effective dataset size through spatial sampling.
+        \item \textbf{Focus filtering}: Leveraged segmentation masks to identify and prioritize tissue-rich regions, reducing computational overhead from background areas.
+    \end{itemize}
+    
+    \subsection{Model Training}
+    All models employed transfer learning with frozen pretrained ImageNet backbones and trainable classification heads, balancing computational efficiency with domain adaptation. Training configuration: Cross-Entropy loss with L1 ($\lambda_1=10^{-5}$) and L2 ($\lambda_2=0.01$) regularization to prevent overfitting; AdamW optimizer (lr=$10^{-3}$, weight decay=0.01) for stable convergence; Mixup/CutMix augmentation ($\alpha=0.4$) applied during training to smooth decision boundaries; dropout rate 0.5 in classification heads; early stopping with patience of 50 epochs based on validation F1 score. Mixed precision training (FP16) accelerated computation on modern GPUs.
+    \section{Experiments}
+    We systematically evaluated three pretrained architectures to assess the benefits of different feature extraction approaches:
+    
+    \textbf{ResNet-18 (baseline)}: Lightweight CNN with residual connections, comprising approximately 11M parameters. Serves as our convolutional baseline, offering fast training and inference. However, its receptive field limitation restricts global context modeling, potentially missing tissue-level patterns spanning multiple cells.
+    
+    \textbf{ViT-B-16}: Vision Transformer (86M parameters) processing 16×16 patches through multi-head self-attention across 12 transformer layers. Naturally suited to our patch-based pipeline, the architecture captures long-range spatial dependencies through global attention mechanisms. Each input patch is linearly projected and augmented with positional embeddings before transformer processing.
+    
+    \textbf{Swin Transformer}: Hierarchical transformer using shifted window attention for computational efficiency. Unlike ViT's global attention, Swin processes non-overlapping windows with periodic shifting, balancing local feature extraction and global context. The hierarchical structure produces multi-scale representations beneficial for capturing both cellular details and tissue architecture.
+    
+    All architectures used frozen ImageNet-pretrained encoders with custom 4-class classification heads (two fully-connected layers with ReLU activation and dropout), enabling rapid experimentation while leveraging representations learned from large-scale pretraining.
+    
+    \begin{table}[H]
+        \centering
+        \caption{Model architecture comparison}
+        \begin{tabular}{lcc}
+            \toprule
+            Model & Val F1 Score & Notes \\
+            \midrule
+            ResNet-18 (baseline) & $\sim$0.58 & Frozen features + classifier\\
+            ViT-B-16 & \textbf{0.641} & Best validation F1 \\
+            Swin Transformer & \textit{0.65*} & Better test performance* \\
+            \bottomrule
+        \end{tabular}
+        \label{tab:Performance}
+        \vspace{2mm}
+        
+        \textit{*Swin achieved better competition test score despite lower validation F1}
+    \end{table}
+
+    \begin{figure}[H]
+        \centering
+        \includegraphics[width=0.48\linewidth]{confusion_matrix.png}
+        \caption{Confusion matrix for ViT-B-16 on validation set}
+        \label{fig:confusion}
+    \end{figure}
+    
+    \begin{figure}[H]
+        \centering
+        \includegraphics[width=0.48\linewidth]{training_curves.png}
+        \caption{Training and validation curves showing F1 score and loss over epochs}
+        \label{fig:training}
+    \end{figure}
+    \section{Results}
+    As shown in Table \ref{tab:Performance}, ViT-B-16 achieved the best validation performance with weighted metrics: F1 score 64.1\%, Accuracy 64.1\%, Precision 64.2\%, Recall 64.1\%. The ResNet-18 baseline achieved approximately 58\% F1, demonstrating the advantage of transformer architectures.
+    
+    Interestingly, Swin Transformer delivered superior test set performance despite lower validation F1, indicating better generalization. This validation-test discrepancy highlights potential overfitting to the validation set and the importance of diverse evaluation strategies.
+    
+    Both transformer architectures outperformed the CNN baseline by approximately 6\% F1, demonstrating their superior ability to capture long-range dependencies and global context in histopathology images. The patch-based processing approach (256×256 patches) proved particularly well-suited for transformers, which naturally operate on image patches through their attention mechanisms.
+
+    \section{Discussion}
+    \subsection{Key Strengths}
+    \textbf{Transformer architectures}: Vision transformers (ViT, Swin) achieved substantial improvements ($\sim$6\% F1) over the CNN baseline by effectively modeling long-range spatial dependencies critical for histopathology analysis. The self-attention mechanism enables capturing relationships between distant cellular structures, mimicking pathologists' holistic tissue assessment.
+    
+    \textbf{Preprocessing pipeline}: The combination of AutoAugment, patch-based processing, and focus filtering successfully addressed limited data availability and class imbalance while preserving fine-grained features. Patch extraction particularly benefited transformers by aligning with their native patch-based processing paradigm.
+    
+    \textbf{Transfer learning}: Frozen pretrained ImageNet features enabled effective domain adaptation despite the significant domain shift between natural and medical images. This suggests low-level visual features (edges, textures, shapes) transfer well to histopathology, even when semantic content differs substantially.
+    
+    \subsection{Limitations}
+    \textbf{Generalization gap}: The validation-test performance discrepancy (ViT validation best, but Swin test best) suggests potential overfitting to the validation set. K-fold cross-validation would provide more robust performance estimates and reduce selection bias.
+    
+    \textbf{Computational requirements}: Patch-based transformers significantly increase training time (3-4× slower than ResNet-18) and GPU memory usage (requiring batch size reduction), limiting rapid iteration and deployment scalability.
+    
+    \textbf{Minority class performance}: Despite targeted augmentation, the Triple negative class exhibits lower per-class F1 (not shown), indicating that simple oversampling may be insufficient. More sophisticated techniques like focal loss or class-weighted sampling merit investigation.
+
+
+    \section{Conclusions}
+    This work shows that vision transformers, especially ViT-B-16 and Swin Transformer\cite{dosovitskiy2020image,liu2021swin}, are highly effective for breast cancer histopathology classification, outperforming CNN baselines by about 6\% F1. With a robust pipeline combining AutoAugment\cite{cubuk2019autoaugment}, patch-based processing, and Mixup/CutMix regularization\cite{zhang2017mixup,yun2019cutmix}, we achieved a 64.1\% validation F1 score on a challenging, limited dataset. Transfer learning from ImageNet\cite{he2016deep} proved essential for adapting to the medical domain.
+    
+    Our results confirm that transformers can generalize well to medical imaging with proper preprocessing and regularization. Future work should explore model ensembling, more robust cross-validation, and domain-specific pretraining to further improve performance and generalization.
+
+    \section*{References}
+    \begin{thebibliography}{9}
+    \bibitem{dosovitskiy2020image} Dosovitskiy, A., Beyer, L., Kolesnikov, A., et al. "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale." arXiv preprint arXiv:2010.11929 (2020).
+    \bibitem{liu2021swin} Liu, Z., Lin, Y., Cao, Y., et al. "Swin Transformer: Hierarchical Vision Transformer using Shifted Windows." arXiv preprint arXiv:2103.14030 (2021).
+    \bibitem{cubuk2019autoaugment} Cubuk, E. D., Zoph, B., Mane, D., et al. "AutoAugment: Learning Augmentation Policies from Data." CVPR (2019).
+    \bibitem{zhang2017mixup} Zhang, H., Cisse, M., Dauphin, Y. N., Lopez-Paz, D. "mixup: Beyond Empirical Risk Minimization." arXiv preprint arXiv:1710.09412 (2017).
+    \bibitem{yun2019cutmix} Yun, S., Han, D., Oh, S. J., et al. "CutMix: Regularization Strategy to Train Strong Classifiers with Localizable Features." ICCV (2019).
+    \bibitem{he2016deep} He, K., Zhang, X., Ren, S., Sun, J. "Deep Residual Learning for Image Recognition." CVPR (2016).
+    \end{thebibliography}
+
+    \end{multicols}
+\end{document}
